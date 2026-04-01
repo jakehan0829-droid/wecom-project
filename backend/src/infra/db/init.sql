@@ -247,6 +247,43 @@ create table if not exists wecom_mapping_audit (
   created_at timestamptz not null default now()
 );
 
+-- 成员档案表，存储群成员档案信息
+create table if not exists member_archive (
+  id varchar(64) primary key,
+  user_id varchar(128) not null,  -- 企微用户ID，对应wecom_conversation_participants.user_id
+  conversation_id varchar(128),   -- 所属会话ID，可选
+  basic_info text,                -- 基本信息
+  preferences text,               -- 偏好与习惯
+  core_problem text,              -- 核心问题/需求
+  communication_summary text,     -- 沟通风格总结
+  followup_focus text,            -- 后续跟进重点
+  persona_summary text,           -- 人物画像总结
+  recent_issue_summary text,      -- 近期问题摘要
+  followup_plan text,             -- 跟进计划
+  source_conversations text,      -- 来源会话ID列表
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  constraint uq_member_archive_user_id unique (user_id)
+);
+
+-- 档案变更日志表，记录patient_profile_ext和member_archive的变更
+create table if not exists archive_change_log (
+  id varchar(64) primary key,
+  archive_type varchar(32) not null,  -- 'patient' 或 'member'
+  archive_id varchar(64) not null,    -- patient_id 或 member_archive.id
+  field_name varchar(64) not null,    -- 变更字段名
+  old_value text,                     -- 旧值
+  new_value text,                     -- 新值
+  change_reason varchar(255),         -- 变更原因（手动更新、模型自动更新等）
+  operator_id varchar(64),            -- 操作者ID（用户ID或'system'）
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_member_archive_user_id on member_archive(user_id);
+create index if not exists idx_member_archive_conversation_id on member_archive(conversation_id);
+create index if not exists idx_archive_change_log_archive_type_archive_id on archive_change_log(archive_type, archive_id);
+create index if not exists idx_archive_change_log_created_at on archive_change_log(created_at desc);
+
 create index if not exists idx_wecom_conversations_platform_chat_id on wecom_conversations(platform_chat_id);
 create index if not exists idx_wecom_conversations_primary_customer_id on wecom_conversations(primary_customer_id);
 create index if not exists idx_wecom_conversations_mapping_status on wecom_conversations(mapping_status);

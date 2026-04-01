@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import mockPayload from '../governance-dashboard/mock-data.json';
 import { governanceDashboardSections } from '../governance-dashboard/schema';
 import { actionLabelMap, bindingTypeLabelMap, matchedByLabelMap, mappingStatusLabelMap, toDisplayLabel } from '../governance-dashboard/display-dictionary';
+import ArchiveManagement from './ArchiveManagement';
 
 type DashboardPayload = typeof mockPayload;
 type DashboardData = DashboardPayload['data'];
 type Mode = 'mock' | 'real';
 type TimePreset = 'today' | 'this_week' | '7d';
-type PageView = 'dashboard' | 'conversation-detail';
+type PageView = 'dashboard' | 'conversation-detail' | 'archive-management';
 type GovernanceAction = 'confirm' | 'reassign' | 'unconfirm' | 'promote_binding';
 
 type ConversationDetail = Record<string, unknown> | null;
@@ -763,6 +764,72 @@ function ConversationDetailPage({
   const [editableCurrentNeeds, setEditableCurrentNeeds] = useState('');
   const [editableCurrentNextSteps, setEditableCurrentNextSteps] = useState('');
   const [lastFeedbackSnapshot, setLastFeedbackSnapshot] = useState<Record<string, unknown> | null>(null);
+  // 业务路由处理状态
+  const [businessRoutingProcessing, setBusinessRoutingProcessing] = useState(false);
+  const [businessRoutingResult, setBusinessRoutingResult] = useState<Record<string, unknown> | null>(null);
+  const [businessRoutingError, setBusinessRoutingError] = useState('');
+  const [selectedMessageId, setSelectedMessageId] = useState('');
+  const [selectedHandlerType, setSelectedHandlerType] = useState<'group-customer-service' | 'medical-assistant'>('group-customer-service');
+
+  // 处理单条消息的业务路由
+  async function processMessageBusinessRouting(messageId: string) {
+    if (mode !== 'real' || !token.trim()) {
+      setBusinessRoutingError('real 模式需要先填写 Bearer token');
+      return;
+    }
+
+    try {
+      setBusinessRoutingProcessing(true);
+      setBusinessRoutingError('');
+      setBusinessRoutingResult(null);
+      const result = await apiPost('/api/v1/business-routing/messages/process', token.trim(), { messageId });
+      setBusinessRoutingResult(result);
+    } catch (err) {
+      setBusinessRoutingError(err instanceof Error ? err.message : '处理消息业务路由失败');
+    } finally {
+      setBusinessRoutingProcessing(false);
+    }
+  }
+
+  // 处理整个会话的业务路由
+  async function processConversationBusinessRouting() {
+    if (mode !== 'real' || !token.trim()) {
+      setBusinessRoutingError('real 模式需要先填写 Bearer token');
+      return;
+    }
+
+    try {
+      setBusinessRoutingProcessing(true);
+      setBusinessRoutingError('');
+      setBusinessRoutingResult(null);
+      const result = await apiPost('/api/v1/business-routing/conversations/process', token.trim(), { conversationId, messageLimit: 50 });
+      setBusinessRoutingResult(result);
+    } catch (err) {
+      setBusinessRoutingError(err instanceof Error ? err.message : '处理会话业务路由失败');
+    } finally {
+      setBusinessRoutingProcessing(false);
+    }
+  }
+
+  // 使用指定处理器处理消息
+  async function processMessageWithSpecificHandler(messageId: string, handlerType: 'group-customer-service' | 'medical-assistant') {
+    if (mode !== 'real' || !token.trim()) {
+      setBusinessRoutingError('real 模式需要先填写 Bearer token');
+      return;
+    }
+
+    try {
+      setBusinessRoutingProcessing(true);
+      setBusinessRoutingError('');
+      setBusinessRoutingResult(null);
+      const result = await apiPost('/api/v1/business-routing/messages/process-with-handler', token.trim(), { messageId, handlerType });
+      setBusinessRoutingResult(result);
+    } catch (err) {
+      setBusinessRoutingError(err instanceof Error ? err.message : '使用指定处理器处理消息失败');
+    } finally {
+      setBusinessRoutingProcessing(false);
+    }
+  }
 
   async function loadDetail() {
     if (mode !== 'real' || !token.trim()) {
@@ -1358,6 +1425,108 @@ function ConversationDetailPage({
           <section className="panel">
             <div className="section-head">
               <div>
+                <h2>业务路由处理</h2>
+                <p>触发AI分析，自动路由到群管理机器人或个人医生助手。</p>
+              </div>
+            </div>
+
+            {businessRoutingProcessing && <div className="info-box">业务路由处理中...</div>}
+            {businessRoutingError && <div className="error-box">{businessRoutingError}</div>}
+            {businessRoutingResult && (
+              <div className="info-box">
+                <strong>处理结果:</strong>
+                <pre>{JSON.stringify(businessRoutingResult, null, 2)}</pre>
+              </div>
+            )}
+
+            <div className="workbench-action-block">
+              <div className="workbench-action-card">
+                <div className="quick-feedback-form">
+                  <div className="quick-feedback-form-title">消息选择</div>
+                  <div className="quick-feedback-grid">
+                    <label className="quick-feedback-notes detail-item-wide">
+                      <span>选择消息ID</span>
+                      <div className="message-selection">
+                        <input
+                          value={selectedMessageId}
+                          onChange={(e) => setSelectedMessageId(e.target.value)}
+                          placeholder="输入消息ID，或从下拉列表选择"
+                        />
+                        {messages.length > 0 && (
+                          <select
+                            value={selectedMessageId}
+                            onChange={(e) => setSelectedMessageId(e.target.value)}
+                            className="message-dropdown"
+                          >
+                            <option value="">-- 选择消息 --</option>
+                            {messages.slice(0, 20).map((msg, index) => {
+                              const msgId = String(msg.id || msg.messageId || msg.message_id || `msg-${index}`);
+                              const content = getMessageContent(msg).trim();
+                              const sender = getMessageSender(msg);
+                              const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+                              return (
+                                <option key={msgId} value={msgId}>
+                                  {msgId} - {sender}: {preview}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        )}
+                      </div>
+                    </label>
+                    <label>
+                      <span>处理器类型</span>
+                      <select
+                        value={selectedHandlerType}
+                        onChange={(e) => setSelectedHandlerType(e.target.value as 'group-customer-service' | 'medical-assistant')}
+                      >
+                        <option value="group-customer-service">群管理机器人</option>
+                        <option value="medical-assistant">个人医生助手</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="quick-feedback-form-title">处理操作</div>
+                  <div className="workbench-action-buttons">
+                    <button
+                      type="button"
+                      disabled={mode !== 'real' || !token.trim() || !selectedMessageId || businessRoutingProcessing}
+                      onClick={() => processMessageBusinessRouting(selectedMessageId)}
+                    >
+                      处理单条消息（自动路由）
+                    </button>
+                    <button
+                      type="button"
+                      disabled={mode !== 'real' || !token.trim() || businessRoutingProcessing}
+                      onClick={() => processConversationBusinessRouting()}
+                    >
+                      处理整个会话
+                    </button>
+                    <button
+                      type="button"
+                      disabled={mode !== 'real' || !token.trim() || !selectedMessageId || businessRoutingProcessing}
+                      onClick={() => processMessageWithSpecificHandler(selectedMessageId, selectedHandlerType)}
+                    >
+                      使用指定处理器处理
+                    </button>
+                  </div>
+
+                  <div className="info-box">
+                    <strong>说明:</strong>
+                    <ul>
+                      <li><strong>处理单条消息（自动路由）:</strong> 根据消息的聊天类型自动路由到群管理机器人（群聊）或个人医生助手（私聊）</li>
+                      <li><strong>处理整个会话:</strong> 批量处理会话中的所有消息（最多50条）</li>
+                      <li><strong>使用指定处理器处理:</strong> 手动指定使用群管理机器人或个人医生助手处理消息</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="section-head">
+              <div>
                 <h2>人工修正与保存</h2>
                 <p>按患者档案模型逐项修正后，再确认写入。</p>
               </div>
@@ -1608,6 +1777,17 @@ export default function App() {
     );
   }
 
+  if (view === 'archive-management') {
+    return (
+      <div className="app-shell">
+        <ArchiveManagement
+          mode={mode}
+          token={token}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -1654,6 +1834,12 @@ export default function App() {
                 {preset}
               </button>
             ))}
+          </div>
+
+          <div className="toolbar-group">
+            <span className="toolbar-label">页面视图</span>
+            <button className={view === 'dashboard' ? 'active' : ''} onClick={() => setView('dashboard')}>患者列表</button>
+            <button className={view === 'archive-management' ? 'active' : ''} onClick={() => setView('archive-management')}>档案管理</button>
           </div>
         </div>
 

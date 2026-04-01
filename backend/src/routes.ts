@@ -31,11 +31,26 @@ import { createWecomConversationInsight, getConversationInsightDetail, listConve
 import { generateConversationBusinessFeedback, getCustomerFeedback } from './modules/wecom-intelligence/controller/business-feedback.controller.js';
 import { createBusinessActionsFromConversation } from './modules/wecom-intelligence/controller/business-action.controller.js';
 import { getWecomConversationOpsView, listWecomAutomationAudit, listWecomEventState } from './modules/wecom-intelligence/controller/automation-query.controller.js';
+import {
+  processMessageWithBusinessRouting,
+  processConversationWithBusinessRouting,
+  processMessageWithSpecificHandler,
+  getMessageBusinessProcessingResult
+} from './modules/wecom-intelligence/controller/business-routing.controller.js';
 import { getWecomOpsSummary } from './modules/wecom-intelligence/controller/ops-dashboard.controller.js';
 import { createGlucoseRecord, createBloodPressureRecord, createWeightRecord } from './modules/health-record/controller/health-record.controller.js';
 import { createDoctorReviewTask, listDoctorReviewTask, updateDoctorReviewTaskStatus } from './modules/dashboard/controller/doctor-review.controller.js';
 import { getDashboardOverview } from './modules/dashboard/controller/dashboard.controller.js';
 import { getWecomDashboardMetrics } from './modules/dashboard/controller/dashboard-metrics.controller.js';
+import {
+  getMemberArchive,
+  upsertMemberArchive,
+  searchMemberArchives,
+  getConversationMemberArchives,
+  getPatientArchiveChangeLog,
+  batchUpdateMemberArchives,
+  analyzeArchiveForImprovementsController
+} from './modules/archive/controller/archive.controller.js';
 import { authGuard } from './shared/middleware/auth.guard.js';
 import { ok, created } from './shared/utils/http.js';
 
@@ -137,3 +152,22 @@ router.get('/api/v1/doctor-review-tasks', asyncHandler(async (_req, res) => ok(r
 router.post('/api/v1/doctor-review-tasks', asyncHandler(async (req, res) => created(res, await createDoctorReviewTask(req.body))));
 router.patch('/api/v1/doctor-review-tasks/:id', asyncHandler(async (req, res) => ok(res, await updateDoctorReviewTaskStatus(getParam(req, 'id'), req.body))));
 router.post('/api/v1/doctor-review-tasks/:id/feedback', asyncHandler(async (req, res) => ok(res, await submitDoctorReviewTaskFeedback(getParam(req, 'id'), req.body))));
+
+// Archive routes
+router.get('/api/v1/member-archives/:userId', asyncHandler(async (req, res) => ok(res, await getMemberArchive(getParam(req, 'userId')))));
+router.put('/api/v1/member-archives/:userId', asyncHandler(async (req, res) => ok(res, await upsertMemberArchive(getParam(req, 'userId'), req.body))));
+router.get('/api/v1/member-archives', asyncHandler(async (req, res) => ok(res, await searchMemberArchives(req.query as Record<string, unknown>))));
+router.get('/api/v1/wecom/conversations/:conversationId/member-archives', asyncHandler(async (req, res) => ok(res, await getConversationMemberArchives(getParam(req, 'conversationId')))));
+router.get('/api/v1/patients/:patientId/archive-change-log', asyncHandler(async (req, res) => ok(res, await getPatientArchiveChangeLog(getParam(req, 'patientId'), typeof req.query.limit === 'string' ? Number(req.query.limit) : 20))));
+router.post('/api/v1/member-archives/batch-update', asyncHandler(async (req, res) => ok(res, await batchUpdateMemberArchives(req.body.updates, req.body.operatorId))));
+router.post('/api/v1/archives/analyze', asyncHandler(async (req, res) => ok(res, await analyzeArchiveForImprovementsController(
+  typeof req.body.archiveType === 'string' ? req.body.archiveType : 'member',
+  typeof req.body.archiveId === 'string' ? req.body.archiveId : '',
+  req.body
+))));
+
+// 业务路由处理
+router.post('/api/v1/business-routing/messages/process', asyncHandler(async (req, res) => ok(res, await processMessageWithBusinessRouting(req.body))));
+router.post('/api/v1/business-routing/conversations/process', asyncHandler(async (req, res) => ok(res, await processConversationWithBusinessRouting(req.body))));
+router.post('/api/v1/business-routing/messages/process-with-handler', asyncHandler(async (req, res) => ok(res, await processMessageWithSpecificHandler(req.body))));
+router.get('/api/v1/business-routing/messages/:messageId/result', asyncHandler(async (req, res) => ok(res, await getMessageBusinessProcessingResult({ messageId: getParam(req, 'messageId') }))));

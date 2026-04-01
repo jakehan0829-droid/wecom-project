@@ -3,6 +3,7 @@ import { db } from '../../../infra/db/pg.js';
 import { normalizeWecomMessage, type WecomMessageIntakeInput } from './message-normalize.service.js';
 import { assignConversationPrimaryCustomer, upsertConversation } from './conversation.service.js';
 import { lookupCustomerMapping } from './patient-mapping.service.js';
+import { aiModelService } from './ai-model.service.js';
 
 function isWecomLocalBypassEnabled() {
   return process.env.WECOM_WEBHOOK_LOCAL_BYPASS_DB === '1';
@@ -71,6 +72,14 @@ export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
     ]
   );
 
+  // 异步触发AI分析（不阻塞主流程）
+  if (process.env.ENABLE_AI_ANALYSIS === 'true' && normalizedWithPatient.contentType === 'text') {
+    // @ts-ignore
+    this.triggerMessageAnalysis(normalizedWithPatient.messageId).catch((error: any) => {
+      console.error(`Failed to trigger AI analysis for message ${normalizedWithPatient.messageId}:`, error);
+    });
+  }
+
   return {
     messageId: normalizedWithPatient.messageId,
     conversationId: normalizedWithPatient.conversationId,
@@ -78,4 +87,22 @@ export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
     patientMapping,
     customerLookup: mappingLookup
   };
+}
+
+// 触发消息分析的辅助方法
+async function triggerMessageAnalysis(messageId: string) {
+  try {
+    // 延迟一下，确保消息已写入数据库
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const result = await aiModelService.analyzeMessageAndUpdateArchives(messageId);
+
+    if (result.success) {
+      console.log(`AI analysis completed for message ${messageId}, archive updated: ${result.archiveUpdated}`);
+    } else {
+      console.warn(`AI analysis failed for message ${messageId}: ${result.error}`);
+    }
+  } catch (error) {
+    console.error(`Error in triggerMessageAnalysis for ${messageId}:`, error);
+  }
 }
