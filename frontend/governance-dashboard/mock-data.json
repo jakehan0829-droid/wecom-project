@@ -1,0 +1,54 @@
+{
+  "success": true,
+  "data": {
+    "meta": {
+      "timePreset": "this_week",
+      "startTime": null,
+      "endTime": null,
+      "limit": 5
+    },
+    "cards": {
+      "totalActions": 2,
+      "manualConfirmTotal": 0,
+      "manualUnconfirmTotal": 0,
+      "reassignTotal": 2,
+      "promoteBindingTotal": 0,
+      "conversationTouchedTotal": 1
+    },
+    "charts": {
+      "byAction": [
+        { "action": "reassign", "total": 2 }
+      ],
+      "byMatchedBy": [
+        { "matchedBy": "manual_confirmation", "total": 2 }
+      ]
+    },
+    "tables": {
+      "byConversation": [
+        {
+          "conversationId": "wecom:private:HanCong",
+          "platformChatId": "HanCong",
+          "total": 2,
+          "lastActionAt": "2026-03-30T02:49:18.653Z"
+        }
+      ],
+      "recentActions": [
+        {
+          "conversationId": "wecom:private:HanCong",
+          "platformChatId": "HanCong",
+          "action": "reassign",
+          "fromPatientId": "de14f0da-bbcc-4e64-b368-3d789897edf4",
+          "toPatientId": "689ca26c-b8d0-46e4-a6d3-c5b750472eff",
+          "mappingStatus": "matched",
+          "matchedBy": "manual_confirmation",
+          "bindingType": null,
+          "operatorNote": "reassign precision test",
+          "createdAt": "2026-03-30T02:49:18.653Z"
+        }
+      ],
+      "latestUnmappedCustomers": [],
+      "latestConflictCustomers": []
+    }
+  },
+  "error": null
+}

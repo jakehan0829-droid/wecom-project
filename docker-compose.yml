@@ -1,0 +1,22 @@
+version: '3.9'
+services:
+  wecom-mvp-postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chronic_disease
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - wecom_mvp_postgres_data:/var/lib/postgresql/data
+
+  wecom-mvp-redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16379:6379"
+
+volumes:
+  wecom_mvp_postgres_data:

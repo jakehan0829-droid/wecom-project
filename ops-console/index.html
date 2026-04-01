@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>企微运营台 v4</title>
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin: 0; background:#f3f4f6; color:#111827; }
+    header { background:#111827; color:#fff; padding:16px 24px; }
+    main { padding:20px; }
+    .toolbar { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .layout { display:grid; grid-template-columns: 360px 1fr; gap:16px; }
+    .panel { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:16px; }
+    .list { max-height: 680px; overflow:auto; }
+    .conversation-item { border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:10px; cursor:pointer; }
+    .conversation-item.active { border-color:#111827; background:#f9fafb; }
+    .meta { color:#6b7280; font-size:12px; margin-top:6px; }
+    .status { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#eef2ff; color:#3730a3; }
+    .metrics { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:16px; }
+    .metric-card { background:#fff; border-radius:12px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    .metric-value { font-size:24px; font-weight:700; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:10px; border-bottom:1px solid #e5e7eb; text-align:left; font-size:13px; vertical-align: top; }
+    th { color:#6b7280; }
+    input, select, button { padding:10px 12px; border-radius:8px; border:1px solid #d1d5db; font-size:14px; }
+    button { background:#111827; color:#fff; border:none; cursor:pointer; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+    .subsection { margin-top:16px; }
+    .action-chip, .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .action-chip { background:#ecfeff; color:#155e75; }
+    .tag.pending { background:#fef3c7; color:#92400e; }
+    .tag.done { background:#dcfce7; color:#166534; }
+    .tag.failed { background:#fee2e2; color:#991b1b; }
+    .tag.closed { background:#e5e7eb; color:#374151; }
+    .timeline { border-left:3px solid #e5e7eb; margin-left:8px; padding-left:16px; }
+    .timeline-item { position:relative; margin-bottom:14px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; }
+    .timeline-item::before { content:''; position:absolute; left:-24px; top:16px; width:10px; height:10px; border-radius:50%; background:#111827; }
+    .timeline-time { color:#6b7280; font-size:12px; margin-bottom:6px; }
+    .timeline-title { font-weight:600; margin-bottom:4px; }
+    .timeline-desc { font-size:13px; color:#374151; }
+    .mini-btn { padding:6px 10px; font-size:12px; margin-right:6px; }
+    .note-input { width:220px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <header><h1 style="margin:0;font-size:20px;">企微运营台 v4</h1></header>
+  <main>
+    <div class="toolbar">
+      <input id="baseUrl" value="http://127.0.0.1:3313" style="min-width:240px;" />
+      <input id="token" placeholder="Bearer Token" style="min-width:420px;" />
+      <select id="statusFilter">
+        <option value="">全部状态</option>
+        <option value="active">active</option>
+        <option value="welcome_pending">welcome_pending</option>
+        <option value="profile_update_pending">profile_update_pending</option>
+        <option value="followup_pending">followup_pending</option>
+        <option value="group_closed">group_closed</option>
+        <option value="contact_lost">contact_lost</option>
+      </select>
+      <input id="keyword" placeholder="会话名 / chatId / customerId 搜索" style="min-width:260px;" />
+      <button onclick="loadAll()">刷新</button>
+    </div>
+
+    <div class="metrics" id="metrics"></div>
+
+    <div class="layout">
+      <div class="panel">
+        <h2 style="margin-top:0;">会话列表</h2>
+        <div class="list" id="conversationList"></div>
+      </div>
+
+      <div class="panel">
+        <h2 style="margin-top:0;">会话详情工作区</h2>
+        <div class="actions">
+          <button onclick="createBusinessAction()">触发业务动作</button>
+          <button onclick="loadConversationWorkbench()">刷新当前会话</button>
+        </div>
+
+        <div class="subsection">
+          <h3>Pending Actions</h3>
+          <table>
+            <thead><tr><th>动作</th><th>来源</th><th>摘要</th><th>处理</th></tr></thead>
+            <tbody id="pendingActionRows"></tbody>
+          </table>
+        </div>
+
+        <div class="subsection">
+          <h3>Actions 历史</h3>
+          <table>
+            <thead><tr><th>动作</th><th>状态</th><th>备注</th><th>时间</th></tr></thead>
+            <tbody id="actionHistoryRows"></tbody>
+          </table>
+        </div>
+
+        <div class="subsection">
+          <h3>事件状态时间线</h3>
+          <div class="timeline" id="eventTimeline"></div>
+        </div>
+
+        <div class="subsection">
+          <h3>自动化审计时间线</h3>
+          <div class="timeline" id="auditTimeline"></div>
+        </div>
+
+        <div class="subsection">
+          <h3>最近消息</h3>
+          <table>
+            <thead><tr><th>发送方</th><th>内容</th><th>时间</th></tr></thead>
+            <tbody id="messageRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let selectedConversationId = null;
+    let selectedConversation = null;
+
+    function headers(json = false) {
+      const token = document.getElementById('token').value.trim();
+      const base = token ? { Authorization: 'Bearer ' + token } : {};
+      return json ? { ...base, 'Content-Type': 'application/json' } : base;
+    }
+
+    function baseUrl() {
+      return document.getElementById('baseUrl').value.trim();
+    }
+
+    async function apiGet(path) {
+      const res = await fetch(baseUrl() + path, { headers: headers() });
+      return res.json();
+    }
+
+    async function apiPost(path, body) {
+      const res = await fetch(baseUrl() + path, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify(body)
+      });
+      return res.json();
+    }
+
+    async function apiPatch(path, body) {
+      const res = await fetch(baseUrl() + path, {
+        method: 'PATCH',
+        headers: headers(true),
+        body: JSON.stringify(body)
+      });
+      return res.json();
+    }
+
+    function renderMetrics(summary) {
+      const current = summary.current || {};
+      const today = summary.today || {};
+      const items = [
+        ['活跃会话', current.activeConversations || 0],
+        ['群关闭', current.groupClosedConversations || 0],
+        ['欢迎待跟进', today.createdWelcomeFollowup || 0],
+        ['重复跳过', today.duplicateSkipped || 0]
+      ];
+      document.getElementById('metrics').innerHTML = items.map(([name, value]) => `
+        <div class="metric-card"><div>${name}</div><div class="metric-value">${value}</div></div>
+      `).join('');
+    }
+
+    async function loadConversations() {
+      const status = document.getElementById('statusFilter').value;
+      const keyword = document.getElementById('keyword').value.trim();
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (keyword) params.set('keyword', keyword);
+      params.set('limit', '50');
+      const res = await apiGet('/api/v1/wecom/conversations?' + params.toString());
+      const items = res.data || [];
+      document.getElementById('conversationList').innerHTML = items.map(item => `
+        <div class="conversation-item ${selectedConversationId === item.conversation_id ? 'active' : ''}" onclick="selectConversation('${item.conversation_id.replace(/'/g, "\\'")}')">
+          <div><strong>${item.conversation_name || item.platform_chat_id}</strong></div>
+          <div class="meta">${item.platform_chat_id}</div>
+          <div class="meta"><span class="status">${item.status}</span> · 消息数 ${item.message_count}</div>
+        </div>
+      `).join('') || '<div class="meta">暂无会话</div>';
+
+      if (!selectedConversationId && items.length) {
+        await selectConversation(items[0].conversation_id);
+      }
+    }
+
+    async function selectConversation(id) {
+      selectedConversationId = id;
+      await loadConversations();
+      await loadConversationWorkbench();
+    }
+
+    function tag(status) {
+      return `<span class="tag ${status}">${status}</span>`;
+    }
+
+    async function loadConversationWorkbench() {
+      if (!selectedConversationId) return;
+      const [detail, messages, events, audits, pendingActions, actionHistory] = await Promise.all([
+        apiGet('/api/v1/wecom/conversations/' + encodeURIComponent(selectedConversationId)),
+        apiGet('/api/v1/wecom/conversations/' + encodeURIComponent(selectedConversationId) + '/messages?limit=10'),
+        apiGet('/api/v1/wecom/event-states?conversationId=' + encodeURIComponent(selectedConversationId) + '&limit=10'),
+        apiGet('/api/v1/wecom/automation-audit?conversationId=' + encodeURIComponent(selectedConversationId) + '&limit=10'),
+        apiGet('/api/v1/wecom/conversations/' + encodeURIComponent(selectedConversationId) + '/pending-actions'),
+        apiGet('/api/v1/wecom/conversations/' + encodeURIComponent(selectedConversationId) + '/action-history')
+      ]);
+      selectedConversation = detail.data || null;
+
+      document.getElementById('messageRows').innerHTML = (messages.data || []).map(item => `
+        <tr>
+          <td>${item.sender_name || item.sender_id || '-'}</td>
+          <td>${item.content_text || item.content_raw || '-'}</td>
+          <td>${item.sent_at || '-'}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="3">暂无消息</td></tr>';
+
+      document.getElementById('pendingActionRows').innerHTML = (pendingActions.data || []).map(item => `
+        <tr>
+          <td><span class="action-chip">${item.actionType}</span></td>
+          <td>${item.triggerSource || '-'}</td>
+          <td>${item.summary || '-'}<br><input class="note-input" id="note-${item.id}" placeholder="处理备注 / failureReason" /></td>
+          <td>
+            <button class="mini-btn" onclick="quickUpdateAction('${item.id}', 'done')">done</button>
+            <button class="mini-btn" onclick="quickUpdateAction('${item.id}', 'failed')">failed</button>
+            <button class="mini-btn" onclick="quickUpdateAction('${item.id}', 'closed')">closed</button>
+          </td>
+        </tr>
+      `).join('') || '<tr><td colspan="4">暂无 pending actions</td></tr>';
+
+      document.getElementById('actionHistoryRows').innerHTML = (actionHistory.data || []).map(item => `
+        <tr>
+          <td><span class="action-chip">${item.actionType}</span></td>
+          <td>${tag(item.status)}</td>
+          <td>${item.failureReason || '-'}</td>
+          <td>${item.sentAt || item.createdAt || '-'}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4">暂无 action 历史</td></tr>';
+
+      document.getElementById('eventTimeline').innerHTML = (events.data || []).map(item => `
+        <div class="timeline-item">
+          <div class="timeline-time">${item.created_at || '-'}</div>
+          <div class="timeline-title">${item.event_category || '-'} / ${item.event_action || '-'}</div>
+          <div class="timeline-desc">生命周期：${item.lifecycle_status || '-'} ｜ 流转：${item.state_transition || '-'}</div>
+        </div>
+      `).join('') || '<div class="meta">暂无事件状态</div>';
+
+      document.getElementById('auditTimeline').innerHTML = (audits.data || []).map(item => `
+        <div class="timeline-item">
+          <div class="timeline-time">${item.created_at || '-'}</div>
+          <div class="timeline-title">${item.trigger_event || '-'} / ${item.trigger_action || '-'}</div>
+          <div class="timeline-desc">${item.triggered ? '已执行' : '已跳过'} ｜ 原因：${item.reason || '-'} ｜ 状态流转：${item.state_transition || '-'}</div>
+        </div>
+      `).join('') || '<div class="meta">暂无自动化审计</div>';
+    }
+
+    async function createBusinessAction() {
+      if (!selectedConversationId || !selectedConversation) return alert('请先选择会话');
+      const customerId = selectedConversation.primary_customer_id;
+      if (!customerId) return alert('当前会话没有 primary_customer_id，无法直接创建业务动作');
+      const result = await apiPost('/api/v1/wecom/conversations/' + encodeURIComponent(selectedConversationId) + '/business-actions', { customerId });
+      alert('业务动作已触发：' + JSON.stringify(result));
+      await loadConversationWorkbench();
+    }
+
+    async function quickUpdateAction(actionId, status) {
+      const noteEl = document.getElementById('note-' + actionId);
+      const failureReason = noteEl ? noteEl.value.trim() : '';
+      await apiPatch('/api/v1/patient-outreach-actions/' + encodeURIComponent(actionId) + '/status', {
+        status,
+        failureReason: failureReason || undefined
+      });
+      await loadConversationWorkbench();
+    }
+
+    async function loadAll() {
+      const summary = await apiGet('/api/v1/wecom/ops-summary');
+      renderMetrics(summary.data || {});
+      selectedConversationId = null;
+      selectedConversation = null;
+      await loadConversations();
+    }
+  </script>
+</body>
+</html>
