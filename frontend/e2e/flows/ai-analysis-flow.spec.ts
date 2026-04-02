@@ -19,24 +19,30 @@ test.describe('AI分析集成流程', () => {
     await expect(page.locator('text=/患者列表|Patients/').first()).toBeVisible();
 
     // 选择患者
-    const patientList = page.locator('[data-testid="patient-list"], .patient-item');
+    const patientList = page.locator('.patient-list-item');
     await patientList.first().click();
 
+    // 切换到消息沟通标签页
+    const messagesTab = page.locator('button').filter({ hasText: /消息沟通|Messages/ });
+    await expect(messagesTab).toBeEnabled({ timeout: 5000 });
+    await messagesTab.click();
+
     // 发送一条包含健康信息的消息
-    const messageInput = page.locator('[data-testid="message-input"], textarea, input[type="text"]').first();
-    await expect(messageInput).toBeVisible();
+    const messageInput = page.locator('.message-input textarea, .message-input input[type="text"]').first();
+    await expect(messageInput).toBeVisible({ timeout: 5000 });
 
     const healthMessage = '最近血压有点高，早上测量是150/95，有点头晕。';
     await messageInput.fill(healthMessage);
 
-    const sendButton = page.locator('button').filter({ hasText: /发送|Send/ }).first();
+    const sendButton = page.locator('.message-input button').filter({ hasText: /发送|Send/ }).first();
+    await expect(sendButton).toBeEnabled({ timeout: 5000 });
     await sendButton.click();
 
     // 等待消息发送
     await expect(page.locator(`text="${healthMessage}"`).first()).toBeVisible({ timeout: 5000 });
 
     // 检查是否有AI分析标记或建议
-    const aiAnalysisIndicator = page.locator('[data-testid="ai-analyzed"], .ai-tag, text=/AI分析|AI Analysis/');
+    const aiAnalysisIndicator = page.locator('.ai-tag, [data-testid="ai-analysis"]');
     if (await aiAnalysisIndicator.isVisible({ timeout: 10000 })) {
       await expect(aiAnalysisIndicator).toBeVisible();
 
@@ -44,7 +50,7 @@ test.describe('AI分析集成流程', () => {
       await aiAnalysisIndicator.click();
 
       // 检查分析结果
-      const analysisResult = page.locator('[data-testid="analysis-result"], .ai-analysis-detail');
+      const analysisResult = page.locator('.ai-analysis-detail');
       await expect(analysisResult).toBeVisible();
 
       // 检查是否包含关键词
@@ -60,7 +66,7 @@ test.describe('AI分析集成流程', () => {
       await expect(page.locator('text=/档案详情|Profile Details/').first()).toBeVisible();
 
       // 检查健康记录是否包含新信息
-      const healthRecords = page.locator('[data-testid="health-records"], .health-history');
+      const healthRecords = page.locator('.health-history');
       await expect(healthRecords).toContainText(/血压|blood pressure/i, { timeout: 5000 });
     }
   });
@@ -76,7 +82,7 @@ test.describe('AI分析集成流程', () => {
     await expect(page.locator('text=/患者列表|Patients/').first()).toBeVisible();
 
     // 选择患者
-    const patientList = page.locator('[data-testid="patient-list"], .patient-item');
+    const patientList = page.locator('.patient-list-item');
     await patientList.first().click();
 
     // 查找AI建议按钮或区域
@@ -86,17 +92,17 @@ test.describe('AI分析集成流程', () => {
       await aiSuggestButton.click();
 
       // 等待AI建议生成
-      await expect(page.locator('[data-testid="ai-suggestions"], .ai-advice-panel')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('.ai-advice-panel')).toBeVisible({ timeout: 10000 });
 
       // 检查建议内容
-      const adviceContent = page.locator('[data-testid="advice-content"], .advice-text');
+      const adviceContent = page.locator('.advice-text');
       await expect(adviceContent).toBeVisible();
 
       // 验证建议合理性
       await expect(adviceContent).not.toBeEmpty();
     } else {
       // 或者检查是否有自动生成的建议区域
-      const autoAdvice = page.locator('[data-testid="auto-advice"], .health-advice');
+      const autoAdvice = page.locator('.health-advice');
       if (await autoAdvice.isVisible({ timeout: 5000 })) {
         await expect(autoAdvice).toBeVisible();
         await expect(autoAdvice).not.toBeEmpty();
@@ -115,12 +121,17 @@ test.describe('AI分析集成流程', () => {
     await expect(page.locator('text=/患者列表|Patients/').first()).toBeVisible();
 
     // 选择患者
-    const patientList = page.locator('[data-testid="patient-list"], .patient-item');
+    const patientList = page.locator('.patient-list-item');
     await patientList.first().click();
 
+    // 切换到消息沟通标签页
+    const messagesTab = page.locator('button').filter({ hasText: /消息沟通|Messages/ });
+    await expect(messagesTab).toBeEnabled({ timeout: 5000 });
+    await messagesTab.click();
+
     // 查找对话历史
-    const conversationHistory = page.locator('[data-testid="conversation-history"], .message-list');
-    await expect(conversationHistory).toBeVisible();
+    const conversationHistory = page.locator('.message-list');
+    await expect(conversationHistory).toBeVisible({ timeout: 5000 });
 
     // 检查消息是否有情感分析标记
     const sentimentTags = page.locator('[data-testid="sentiment-tag"], .sentiment-indicator');
@@ -152,7 +163,7 @@ test.describe('AI分析集成流程', () => {
     await expect(page.locator('text=/患者列表|Patients/').first()).toBeVisible();
 
     // 选择患者
-    const patientList = page.locator('[data-testid="patient-list"], .patient-item');
+    const patientList = page.locator('.patient-list-item');
     await patientList.first().click();
 
     // 查找业务路由指示器
