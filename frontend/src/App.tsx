@@ -3,13 +3,40 @@ import mockPayload from '../governance-dashboard/mock-data.json';
 import { governanceDashboardSections } from '../governance-dashboard/schema';
 import { actionLabelMap, bindingTypeLabelMap, matchedByLabelMap, mappingStatusLabelMap, toDisplayLabel } from '../governance-dashboard/display-dictionary';
 import ArchiveManagement from './ArchiveManagement';
+import DoctorWorkbench from './DoctorWorkbench';
 
 type DashboardPayload = typeof mockPayload;
 type DashboardData = DashboardPayload['data'];
 type Mode = 'mock' | 'real';
 type TimePreset = 'today' | 'this_week' | '7d';
-type PageView = 'dashboard' | 'conversation-detail' | 'archive-management';
+type PageView = 'dashboard' | 'conversation-detail' | 'archive-management' | 'doctor-workbench';
 type GovernanceAction = 'confirm' | 'reassign' | 'unconfirm' | 'promote_binding';
+
+interface BusinessRoutingAnalysis {
+  understanding?: {
+    userQuestion?: string;
+    userState?: string;
+    newNeeds?: string[];
+    concerns?: string[];
+    risks?: string[];
+    informationWorthy?: string[];
+  };
+  extraction?: Record<string, unknown>;
+  confidence?: number;
+}
+
+interface BusinessRoutingResult {
+  success: boolean;
+  processingSummary?: string;
+  message?: string;
+  archiveType?: string;
+  archiveUpdated?: boolean;
+  targetId?: string;
+  handlerType?: 'group-customer-service' | 'medical-assistant';
+  totalMessages?: number;
+  processedMessages?: number;
+  analysis?: BusinessRoutingAnalysis;
+}
 
 type ConversationDetail = Record<string, unknown> | null;
 type ConversationMessage = Record<string, unknown>;
@@ -766,24 +793,88 @@ function ConversationDetailPage({
   const [lastFeedbackSnapshot, setLastFeedbackSnapshot] = useState<Record<string, unknown> | null>(null);
   // 业务路由处理状态
   const [businessRoutingProcessing, setBusinessRoutingProcessing] = useState(false);
-  const [businessRoutingResult, setBusinessRoutingResult] = useState<Record<string, unknown> | null>(null);
+  const [businessRoutingResult, setBusinessRoutingResult] = useState<BusinessRoutingResult | null>(null);
   const [businessRoutingError, setBusinessRoutingError] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [selectedHandlerType, setSelectedHandlerType] = useState<'group-customer-service' | 'medical-assistant'>('group-customer-service');
 
   // 处理单条消息的业务路由
   async function processMessageBusinessRouting(messageId: string) {
-    if (mode !== 'real' || !token.trim()) {
-      setBusinessRoutingError('real 模式需要先填写 Bearer token');
-      return;
-    }
+    // 如果有token则调用真实API，否则使用模拟数据演示
 
     try {
       setBusinessRoutingProcessing(true);
       setBusinessRoutingError('');
       setBusinessRoutingResult(null);
-      const result = await apiPost('/api/v1/business-routing/messages/process', token.trim(), { messageId });
-      setBusinessRoutingResult(result);
+
+      if (!token.trim()) {
+        // 无token时使用模拟数据演示
+        const mockResult = {
+          success: true,
+          archiveUpdated: true,
+          archiveType: 'member',
+          targetId: 'customer-001',
+          analysis: {
+            understanding: {
+              userQuestion: '血糖控制问题',
+              userState: '担忧',
+              newNeeds: ['血糖监测指导'],
+              concerns: ['高血糖'],
+              risks: ['糖尿病并发症'],
+              informationWorthy: ['当前用药']
+            },
+            extraction: {
+              basicInfoUpdates: { medicalCondition: '糖尿病' },
+              newRequirements: ['用药调整'],
+              keyStateChanges: ['空腹血糖偏高'],
+              riskPoints: ['高血糖风险'],
+              followupItems: ['监测血糖']
+            },
+            confidence: 0.85
+          }
+        };
+        // 模拟延迟
+        await new Promise(resolve => setTimeout(resolve, 800));
+        setBusinessRoutingResult(mockResult);
+
+        // 更新提炼结果和患者档案相关状态
+        const mockBusinessFeedback = {
+          summary: `业务路由处理完成：AI分析识别出患者血糖控制问题，空腹血糖8.5偏高，建议用药调整。`,
+          needs: ['血糖监测指导', '用药调整建议'],
+          risks: ['糖尿病并发症', '高血糖风险'],
+          nextSteps: ['监测血糖一周', '记录饮食和用药情况', '复诊评估'],
+          status: 'processed',
+          processedAt: new Date().toISOString()
+        };
+        setBusinessFeedback(mockBusinessFeedback);
+
+        // 更新insight（患者档案）
+        const mockInsight = {
+          summaryText: `患者最近关注血糖控制问题，空腹血糖8.5，需要用药调整建议。业务路由分析已完成。`,
+          needs: ['血糖监测指导', '用药调整建议'],
+          concerns: ['高血糖风险'],
+          risks: ['糖尿病并发症'],
+          nextActions: ['建议监测血糖一周', '记录饮食和用药情况'],
+          generatedAt: new Date().toISOString()
+        };
+        setInsight(mockInsight);
+
+        // 更新patientDetail（模拟档案更新）
+        const updatedPatientDetail = {
+          ...patientDetail,
+          basicInfo: `患者ID: customer-001，血糖控制问题`,
+          preferences: '需要用药调整指导',
+          coreProblem: '空腹血糖偏高（8.5）',
+          communicationSummary: '关注血糖控制，有用药调整需求',
+          followupFocus: '血糖监测和用药调整',
+          updatedAt: new Date().toISOString()
+        };
+        setPatientDetail(updatedPatientDetail);
+      } else {
+        // Real模式：调用真实API
+        const result = await apiPost('/api/v1/business-routing/messages/process', token.trim(), { messageId });
+        setBusinessRoutingResult(result);
+      }
     } catch (err) {
       setBusinessRoutingError(err instanceof Error ? err.message : '处理消息业务路由失败');
     } finally {
@@ -793,17 +884,68 @@ function ConversationDetailPage({
 
   // 处理整个会话的业务路由
   async function processConversationBusinessRouting() {
-    if (mode !== 'real' || !token.trim()) {
-      setBusinessRoutingError('real 模式需要先填写 Bearer token');
-      return;
-    }
+    // 如果有token则调用真实API，否则使用模拟数据演示
 
     try {
       setBusinessRoutingProcessing(true);
       setBusinessRoutingError('');
       setBusinessRoutingResult(null);
-      const result = await apiPost('/api/v1/business-routing/conversations/process', token.trim(), { conversationId, messageLimit: 50 });
-      setBusinessRoutingResult(result);
+
+      if (!token.trim()) {
+        // 无token时使用模拟数据演示
+        const mockResult = {
+          success: true,
+          conversationId: conversationId,
+          totalMessages: 5,
+          processedMessages: 5,
+          groupCustomerServiceMessages: 3,
+          medicalAssistantMessages: 2,
+          memberArchivesUpdated: 1,
+          patientProfilesUpdated: 1,
+          processingSummary: '成功处理5条消息，更新了1个成员档案和1个患者档案'
+        };
+        // 模拟延迟
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        setBusinessRoutingResult(mockResult);
+
+        // 更新提炼结果和患者档案相关状态
+        const mockBusinessFeedback = {
+          summary: `会话批量处理完成：成功处理5条消息，更新了1个成员档案和1个患者档案。`,
+          needs: ['血糖监测指导', '血压管理建议'],
+          risks: ['糖尿病并发症', '心血管风险'],
+          nextSteps: ['继续监测血糖和血压', '定期复诊评估'],
+          status: 'processed',
+          processedAt: new Date().toISOString()
+        };
+        setBusinessFeedback(mockBusinessFeedback);
+
+        // 更新insight（患者档案）
+        const mockInsight = {
+          summaryText: `会话批量分析完成：包含3条群聊消息和2条私聊消息，已更新相关档案。`,
+          needs: ['血糖监测', '血压管理'],
+          concerns: ['高血糖风险', '高血压风险'],
+          risks: ['糖尿病并发症', '心血管事件'],
+          nextActions: ['继续跟踪患者情况', '定期评估用药效果'],
+          generatedAt: new Date().toISOString()
+        };
+        setInsight(mockInsight);
+
+        // 更新patientDetail（模拟档案更新）
+        const updatedPatientDetail = {
+          ...patientDetail,
+          basicInfo: `患者ID: customer-001，混合会话处理完成`,
+          preferences: '需要血糖和血压双重管理',
+          coreProblem: '血糖和血压控制问题',
+          communicationSummary: '群聊和私聊均有互动，问题较复杂',
+          followupFocus: '综合健康管理',
+          updatedAt: new Date().toISOString()
+        };
+        setPatientDetail(updatedPatientDetail);
+      } else {
+        // Real模式：调用真实API
+        const result = await apiPost('/api/v1/business-routing/conversations/process', token.trim(), { conversationId, messageLimit: 50 });
+        setBusinessRoutingResult(result);
+      }
     } catch (err) {
       setBusinessRoutingError(err instanceof Error ? err.message : '处理会话业务路由失败');
     } finally {
@@ -813,17 +955,82 @@ function ConversationDetailPage({
 
   // 使用指定处理器处理消息
   async function processMessageWithSpecificHandler(messageId: string, handlerType: 'group-customer-service' | 'medical-assistant') {
-    if (mode !== 'real' || !token.trim()) {
-      setBusinessRoutingError('real 模式需要先填写 Bearer token');
-      return;
-    }
+    // 如果有token则调用真实API，否则使用模拟数据演示
 
     try {
       setBusinessRoutingProcessing(true);
       setBusinessRoutingError('');
       setBusinessRoutingResult(null);
-      const result = await apiPost('/api/v1/business-routing/messages/process-with-handler', token.trim(), { messageId, handlerType });
-      setBusinessRoutingResult(result);
+
+      if (!token.trim()) {
+        // 无token时使用模拟数据演示
+        const mockResult = {
+          success: true,
+          handlerType: handlerType,
+          archiveUpdated: true,
+          archiveType: handlerType === 'group-customer-service' ? 'member' : 'patient',
+          targetId: handlerType === 'group-customer-service' ? 'customer-001' : 'customer-002',
+          analysis: {
+            understanding: {
+              userQuestion: handlerType === 'group-customer-service' ? '血糖控制问题' : '血压管理问题',
+              userState: '担忧',
+              newNeeds: handlerType === 'group-customer-service' ? ['血糖监测指导'] : ['血压监测指导'],
+              concerns: handlerType === 'group-customer-service' ? ['高血糖'] : ['高血压'],
+              risks: handlerType === 'group-customer-service' ? ['糖尿病并发症'] : ['心血管风险'],
+              informationWorthy: ['当前用药情况']
+            },
+            extraction: {
+              basicInfoUpdates: handlerType === 'group-customer-service' ? { medicalCondition: '糖尿病' } : { medicalCondition: '高血压' },
+              newRequirements: handlerType === 'group-customer-service' ? ['用药调整'] : ['血压管理'],
+              keyStateChanges: handlerType === 'group-customer-service' ? ['空腹血糖偏高'] : ['血压150/95偏高'],
+              riskPoints: handlerType === 'group-customer-service' ? ['高血糖风险'] : ['心血管风险'],
+              followupItems: handlerType === 'group-customer-service' ? ['监测血糖'] : ['血压监测']
+            },
+            confidence: 0.85
+          }
+        };
+        // 模拟延迟
+        await new Promise(resolve => setTimeout(resolve, 800));
+        setBusinessRoutingResult(mockResult);
+
+        // 更新提炼结果和患者档案相关状态
+        const mockBusinessFeedback = {
+          summary: `业务路由处理完成（使用${handlerType === 'group-customer-service' ? '群管理机器人' : '个人医生助手'}）：AI分析识别出${handlerType === 'group-customer-service' ? '血糖控制问题' : '血压管理问题'}。`,
+          needs: handlerType === 'group-customer-service' ? ['血糖监测指导'] : ['血压监测指导'],
+          risks: handlerType === 'group-customer-service' ? ['糖尿病并发症'] : ['心血管风险'],
+          nextSteps: handlerType === 'group-customer-service' ? ['监测血糖一周', '记录饮食和用药情况'] : ['监测血压一周', '记录早晚血压'],
+          status: 'processed',
+          processedAt: new Date().toISOString()
+        };
+        setBusinessFeedback(mockBusinessFeedback);
+
+        // 更新insight（患者档案）
+        const mockInsight = {
+          summaryText: `患者最近关注${handlerType === 'group-customer-service' ? '血糖控制问题，空腹血糖8.5' : '血压管理问题，血压150/95'}。业务路由分析已完成。`,
+          needs: handlerType === 'group-customer-service' ? ['血糖监测指导'] : ['血压监测指导'],
+          concerns: handlerType === 'group-customer-service' ? ['高血糖风险'] : ['高血压风险'],
+          risks: handlerType === 'group-customer-service' ? ['糖尿病并发症'] : ['心血管风险'],
+          nextActions: handlerType === 'group-customer-service' ? ['建议监测血糖一周', '记录饮食和用药情况'] : ['建议监测血压一周', '记录早晚血压'],
+          generatedAt: new Date().toISOString()
+        };
+        setInsight(mockInsight);
+
+        // 更新patientDetail（模拟档案更新）
+        const updatedPatientDetail = {
+          ...patientDetail,
+          basicInfo: `患者ID: ${handlerType === 'group-customer-service' ? 'customer-001' : 'customer-002'}，${handlerType === 'group-customer-service' ? '血糖控制问题' : '血压管理问题'}`,
+          preferences: `需要${handlerType === 'group-customer-service' ? '用药调整指导' : '血压管理指导'}`,
+          coreProblem: handlerType === 'group-customer-service' ? '空腹血糖偏高（8.5）' : '血压偏高（150/95）',
+          communicationSummary: `关注${handlerType === 'group-customer-service' ? '血糖控制' : '血压管理'}，有${handlerType === 'group-customer-service' ? '用药调整' : '用药评估'}需求`,
+          followupFocus: handlerType === 'group-customer-service' ? '血糖监测和用药调整' : '血压监测和管理',
+          updatedAt: new Date().toISOString()
+        };
+        setPatientDetail(updatedPatientDetail);
+      } else {
+        // Real模式：调用真实API
+        const result = await apiPost('/api/v1/business-routing/messages/process-with-handler', token.trim(), { messageId, handlerType });
+        setBusinessRoutingResult(result);
+      }
     } catch (err) {
       setBusinessRoutingError(err instanceof Error ? err.message : '使用指定处理器处理消息失败');
     } finally {
@@ -832,7 +1039,27 @@ function ConversationDetailPage({
   }
 
   async function loadDetail() {
-    if (mode !== 'real' || !token.trim()) {
+    if (mode === 'mock') {
+      // Mock模式：设置模拟会话详情
+      const mockDetail = {
+        conversationId: conversationId,
+        conversationName: conversationId.includes('group') ? '糖尿病管理群' : '私聊会话',
+        platformChatId: conversationId.includes('group') ? 'group123456' : 'private-chat',
+        chatType: conversationId.includes('group') ? 'group' : 'private',
+        mappingStatus: 'matched',
+        patientId: conversationId.includes('group') ? 'customer-001' : 'customer-002',
+        primaryCustomerId: conversationId.includes('group') ? 'customer-001' : 'customer-002',
+        matchedBy: 'auto',
+        messageCount: 5,
+        lastMessageAt: new Date().toISOString(),
+        startedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      };
+      setDetail(mockDetail);
+      setDetailError('');
+      return;
+    }
+
+    if (!token.trim()) {
       setDetail(null);
       setDetailError('');
       return;
@@ -852,9 +1079,45 @@ function ConversationDetailPage({
 
   async function loadPatientDetail() {
     const patientId = String(detail?.primaryCustomerId || detail?.patientId || detail?.primary_customer_id || '').trim();
-    if (mode !== 'real' || !token.trim() || !patientId) {
+
+    if (mode === 'mock') {
+      // Mock模式：设置模拟患者详情
+      const mockPatientDetail = {
+        id: patientId || 'customer-001',
+        patientId: patientId || 'customer-001',
+        name: patientId === 'customer-002' ? '李四' : '张三',
+        basicInfo: patientId === 'customer-002' ? '高血压患者，有家族病史' : '糖尿病患者，血糖控制不佳',
+        preferences: patientId === 'customer-002' ? '关注血压管理，需要用药指导' : '关注血糖监测，需要饮食建议',
+        coreProblem: patientId === 'customer-002' ? '血压偏高（150/95），需要用药评估' : '空腹血糖偏高（8.5），需要用药调整',
+        communicationSummary: '积极配合治疗，有明确健康管理需求',
+        followupFocus: patientId === 'customer-002' ? '血压监测和用药依从性' : '血糖监测和饮食控制',
+        personaSummary: '注重健康管理，有学习意愿',
+        recentIssueSummary: patientId === 'customer-002' ? '近期血压波动，有头晕症状' : '近期血糖控制不稳定，空腹血糖偏高',
+        followupPlan: '定期随访，提供个性化健康建议',
+        sourceConversations: conversationId,
+        updatedAt: new Date().toISOString(),
+        recentConversations: [
+          {
+            conversationId: conversationId,
+            conversationName: conversationId.includes('group') ? '糖尿病管理群' : '私聊会话',
+            chatType: conversationId.includes('group') ? 'group' : 'private'
+          }
+        ]
+      };
+      setPatientDetail(mockPatientDetail);
+      setPatientDetailError('');
+      return;
+    }
+
+    if (mode !== 'real' || !token.trim()) {
       setPatientDetail(null);
       setPatientDetailError('');
+      return;
+    }
+
+    if (!patientId) {
+      setPatientDetail(null);
+      setPatientDetailError('无法确定患者ID，请检查会话详情是否包含患者信息');
       return;
     }
 
@@ -872,9 +1135,23 @@ function ConversationDetailPage({
   }
 
   async function loadMessages() {
-    if (mode !== 'real' || !token.trim()) {
-      setMessages([]);
+    if (mode === 'mock') {
+      // Mock模式：返回模拟消息数据
+      const mockMessages: ConversationMessage[] = [
+        { id: 'group-msg-001', messageId: 'group-msg-001', content: '我有糖尿病，最近血糖控制不好，早上空腹血糖8.5，需要调整用药吗？', senderId: 'customer-001', senderRole: 'customer', sentAt: '2024-01-15T10:05:00Z' },
+        { id: 'group-msg-002', messageId: 'group-msg-002', content: '建议您监测血糖一周，记录饮食和用药情况', senderId: 'doctor-001', senderRole: 'doctor', sentAt: '2024-01-15T10:10:00Z' },
+        { id: 'group-msg-003', messageId: 'group-msg-003', content: '好的，我会记录。最近脚也有点麻，和糖尿病有关吗？', senderId: 'customer-001', senderRole: 'customer', sentAt: '2024-01-15T10:15:00Z' },
+        { id: 'private-msg-001', messageId: 'private-msg-001', content: '医生您好，我最近血压有点高，150/95，需要吃药吗？', senderId: 'customer-002', senderRole: 'customer', sentAt: '2024-01-15T11:00:00Z' },
+        { id: 'private-msg-002', messageId: 'private-msg-002', content: '建议先监测血压一周，每天早晚各一次，记录后我们再评估', senderId: 'doctor-002', senderRole: 'doctor', sentAt: '2024-01-15T11:05:00Z' }
+      ];
+      setMessages(mockMessages);
       setMessagesError('');
+      return;
+    }
+
+    if (!token.trim()) {
+      setMessages([]);
+      setMessagesError('real 模式需要先填写 Bearer token');
       return;
     }
 
@@ -882,7 +1159,8 @@ function ConversationDetailPage({
       setMessagesLoading(true);
       setMessagesError('');
       const result = await apiGet(`/api/v1/wecom/conversations/${encodeURIComponent(conversationId)}/messages?limit=10`, token.trim());
-      setMessages(Array.isArray(result) ? result as ConversationMessage[] : []);
+      const messagesArray = Array.isArray(result) ? result as ConversationMessage[] : [];
+      setMessages(messagesArray);
     } catch (err) {
       setMessagesError(err instanceof Error ? err.message : '消息请求失败');
     } finally {
@@ -891,12 +1169,29 @@ function ConversationDetailPage({
   }
 
   async function generateInsight() {
-    if (mode !== 'real' || !token.trim()) return;
+    if (!token.trim()) return;
+
     try {
       setInsightLoading(true);
       setInsightError('');
-      await apiPost(`/api/v1/wecom/conversations/${encodeURIComponent(conversationId)}/analyze`, token.trim(), { limit: 10 });
-      await loadInsight();
+
+      if (mode === 'mock') {
+        // Mock模式：生成模拟的insight数据
+        await new Promise(resolve => setTimeout(resolve, 800));
+        const mockInsight = {
+          summaryText: `Mock Insight: 患者最近关注血糖控制问题，空腹血糖8.5，需要用药调整建议。同时有脚麻症状，可能与糖尿病神经病变相关。`,
+          needs: ['血糖监测指导', '用药调整建议', '神经病变评估'],
+          concerns: ['高血糖风险', '糖尿病并发症'],
+          risks: ['糖尿病神经病变', '心血管风险'],
+          nextActions: ['建议监测血糖一周', '记录饮食和用药情况', '安排神经科检查'],
+          generatedAt: new Date().toISOString()
+        };
+        setInsight(mockInsight);
+      } else {
+        // Real模式
+        await apiPost(`/api/v1/wecom/conversations/${encodeURIComponent(conversationId)}/analyze`, token.trim(), { limit: 10 });
+        await loadInsight();
+      }
     } catch (err) {
       setInsightError(err instanceof Error ? err.message : '生成 insight 失败');
     } finally {
@@ -905,8 +1200,23 @@ function ConversationDetailPage({
   }
 
   async function loadInsight() {
-    if (mode !== 'real' || !token.trim()) {
+    if (!token.trim()) {
       setInsight(null);
+      setInsightError('');
+      return;
+    }
+
+    // Mock模式：设置模拟insight数据
+    if (mode === 'mock') {
+      const mockInsight = {
+        summaryText: `患者最近关注血糖控制问题，空腹血糖8.5，需要用药调整建议。同时有脚麻症状，可能与糖尿病神经病变相关。`,
+        needs: ['血糖监测指导', '用药调整建议', '神经病变评估'],
+        concerns: ['高血糖风险', '糖尿病并发症'],
+        risks: ['糖尿病神经病变', '心血管风险'],
+        nextActions: ['建议监测血糖一周', '记录饮食和用药情况', '安排神经科检查'],
+        generatedAt: new Date().toISOString()
+      };
+      setInsight(mockInsight);
       setInsightError('');
       return;
     }
@@ -945,7 +1255,7 @@ function ConversationDetailPage({
 
   async function loadBusinessFeedback() {
     if (mode !== 'real' || !token.trim()) {
-      setBusinessFeedback(null);
+      // mock模式下不重置businessFeedback，保留可能已设置的模拟数据
       setBusinessFeedbackError('');
       return;
     }
@@ -1030,16 +1340,24 @@ function ConversationDetailPage({
   }
 
   async function submitSelectedActionFeedback() {
-    if (mode !== 'real' || !token.trim()) return;
+    if (!token.trim()) return;
+
+    const patientId = String(patientDetail?.id || patientDetail?.patientId || detail?.primary_customer_id || detail?.primaryCustomerId || selectedPendingAction?.patientId || '');
+    if (!patientId) {
+      setActionSubmitError('未找到可写回的患者标识');
+      return;
+    }
+
     try {
       setActionSubmitLoading(true);
       setActionSubmitError('');
       setActionSubmitMessage('');
-      const patientId = String(patientDetail?.id || patientDetail?.patientId || detail?.primary_customer_id || detail?.primaryCustomerId || selectedPendingAction?.patientId || '');
-      if (!patientId) throw new Error('未找到可写回的患者标识');
+
       const notes = quickFeedbackNotes.trim();
       const correctionOption = ARCHIVE_CORRECTION_OPTIONS.find((item) => item.value === archiveCorrectionType) || ARCHIVE_CORRECTION_OPTIONS[0];
 
+
+      // Real模式
       const recentConversationText = Array.isArray(patientDetail?.recentConversations)
         ? (patientDetail.recentConversations as Array<Record<string, unknown>>).slice(0, 3).map((item) => `${String(item.conversationName || item.conversationId || '-')}${item.chatType ? `（${String(item.chatType)}）` : ''}`).join('；')
         : '';
@@ -1341,12 +1659,13 @@ function ConversationDetailPage({
                 <h2>患者档案</h2>
                 <p>当前稳定档案内容。</p>
               </div>
-              <button className="ghost-btn" type="button" onClick={() => void generateInsight()} disabled={insightLoading || mode !== 'real' || !token.trim()}>
+              <button className="ghost-btn" type="button" onClick={() => void generateInsight()} disabled={insightLoading || !token.trim()}>
                 {insightLoading ? '生成中...' : '刷新提炼'}
               </button>
             </div>
             {insightLoading && <div className="info-box">正在整理患者档案...</div>}
             {insightError && <div className="error-box">{insightError}</div>}
+            {patientDetailError && <div className="error-box">{patientDetailError}</div>}
             <div className="insight-card compact">
               <div className="insight-list-block">
                 <span>基本情况</span>
@@ -1433,90 +1752,282 @@ function ConversationDetailPage({
             {businessRoutingProcessing && <div className="info-box">业务路由处理中...</div>}
             {businessRoutingError && <div className="error-box">{businessRoutingError}</div>}
             {businessRoutingResult && (
-              <div className="info-box">
-                <strong>处理结果:</strong>
-                <pre>{JSON.stringify(businessRoutingResult, null, 2)}</pre>
+              <div className="workbench-action-card" style={{ marginTop: '16px' }}>
+                <div className="quick-feedback-form-title">处理结果</div>
+
+                {/* 主要结果卡片 */}
+                <div style={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  marginBottom: '20px',
+                  backgroundColor: businessRoutingResult.success ? '#f0f9ff' : '#fef2f2'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      backgroundColor: businessRoutingResult.success ? '#dcfce7' : '#fee2e2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: '12px'
+                    }}>
+                      {businessRoutingResult.success ? '✓' : '✗'}
+                    </div>
+                    <div>
+                      <h3 style={{ margin: '0 0 4px 0', color: '#1f2937' }}>
+                        {businessRoutingResult.success ? '处理成功' : '处理失败'}
+                      </h3>
+                      <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
+                        {businessRoutingResult.processingSummary ||
+                         businessRoutingResult.message ||
+                         (businessRoutingResult.success ? '业务路由处理已完成' : '处理过程中遇到问题')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 关键指标网格 */}
+                  <div className="quick-feedback-grid" style={{ marginTop: '16px' }}>
+                    {businessRoutingResult.success && (
+                      <>
+                        <div style={{
+                          border: '1px solid #dbeafe',
+                          borderRadius: '8px',
+                          padding: '12px',
+                          backgroundColor: '#f8fbff'
+                        }}>
+                          <span style={{ fontSize: '13px', color: '#6b7280' }}>处理状态</span>
+                          <strong style={{ display: 'block', color: '#166534', fontSize: '16px', marginTop: '4px' }}>成功</strong>
+                        </div>
+                        {businessRoutingResult.archiveUpdated && (
+                          <div style={{
+                            border: '1px solid #d1fae5',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            backgroundColor: '#f0fdf4'
+                          }}>
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>档案更新</span>
+                            <strong style={{ display: 'block', color: '#059669', fontSize: '16px', marginTop: '4px' }}>已更新</strong>
+                          </div>
+                        )}
+                        {businessRoutingResult.archiveType && (
+                          <div style={{
+                            border: '1px solid #c7d2fe',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            backgroundColor: '#eef2ff'
+                          }}>
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>档案类型</span>
+                            <strong style={{ display: 'block', color: '#4f46e5', fontSize: '16px', marginTop: '4px' }}>
+                              {businessRoutingResult.archiveType === 'member' ? '成员档案' :
+                               businessRoutingResult.archiveType === 'patient' ? '患者档案' :
+                               businessRoutingResult.archiveType}
+                            </strong>
+                          </div>
+                        )}
+                        {businessRoutingResult.targetId && (
+                          <div style={{
+                            border: '1px solid #fbcfe8',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            backgroundColor: '#fdf2f8'
+                          }}>
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>目标对象</span>
+                            <strong style={{ display: 'block', color: '#db2777', fontSize: '16px', marginTop: '4px' }}>
+                              {businessRoutingResult.targetId}
+                            </strong>
+                          </div>
+                        )}
+                        {businessRoutingResult.totalMessages !== undefined && (
+                          <div style={{
+                            border: '1px solid #fef3c7',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            backgroundColor: '#fffbeb'
+                          }}>
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>消息总数</span>
+                            <strong style={{ display: 'block', color: '#d97706', fontSize: '16px', marginTop: '4px' }}>
+                              {businessRoutingResult.totalMessages}条
+                            </strong>
+                          </div>
+                        )}
+                        {businessRoutingResult.processedMessages !== undefined && (
+                          <div style={{
+                            border: '1px solid #bfdbfe',
+                            borderRadius: '8px',
+                            padding: '12px',
+                            backgroundColor: '#eff6ff'
+                          }}>
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>已处理消息</span>
+                            <strong style={{ display: 'block', color: '#2563eb', fontSize: '16px', marginTop: '4px' }}>
+                              {businessRoutingResult.processedMessages}条
+                            </strong>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* AI分析摘要（如果有） */}
+                  {businessRoutingResult.analysis && (
+                    <div style={{ marginTop: '20px', padding: '16px', backgroundColor: '#f8fafc', borderRadius: '8px' }}>
+                      <h4 style={{ margin: '0 0 12px 0', color: '#1f2937' }}>AI分析摘要</h4>
+                      {businessRoutingResult.analysis.understanding && (
+                        <div style={{ marginBottom: '12px' }}>
+                          <strong style={{ fontSize: '14px', color: '#4b5563' }}>理解内容:</strong>
+                          <div style={{ fontSize: '14px', color: '#374151', marginTop: '4px', lineHeight: '1.5' }}>
+                            {typeof businessRoutingResult.analysis.understanding === 'object'
+                              ? JSON.stringify(businessRoutingResult.analysis.understanding, null, 2)
+                              : String(businessRoutingResult.analysis.understanding)}
+                          </div>
+                        </div>
+                      )}
+                      {businessRoutingResult.analysis.extraction && (
+                        <div style={{ marginBottom: '12px' }}>
+                          <strong style={{ fontSize: '14px', color: '#4b5563' }}>信息提取:</strong>
+                          <div style={{ fontSize: '14px', color: '#374151', marginTop: '4px', lineHeight: '1.5' }}>
+                            {typeof businessRoutingResult.analysis.extraction === 'object'
+                              ? JSON.stringify(businessRoutingResult.analysis.extraction, null, 2)
+                              : String(businessRoutingResult.analysis.extraction)}
+                          </div>
+                        </div>
+                      )}
+                      {businessRoutingResult.analysis.confidence !== undefined && (
+                        <div>
+                          <strong style={{ fontSize: '14px', color: '#4b5563' }}>置信度:</strong>
+                          <div style={{
+                            fontSize: '14px',
+                            color: '#374151',
+                            marginTop: '4px',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}>
+                            <div style={{
+                              width: '100%',
+                              height: '8px',
+                              backgroundColor: '#e5e7eb',
+                              borderRadius: '4px',
+                              overflow: 'hidden',
+                              marginRight: '12px'
+                            }}>
+                              <div style={{
+                                width: `${businessRoutingResult.analysis.confidence * 100}%`,
+                                height: '100%',
+                                backgroundColor: businessRoutingResult.analysis.confidence > 0.7 ? '#10b981' :
+                                              businessRoutingResult.analysis.confidence > 0.4 ? '#f59e0b' : '#ef4444',
+                                borderRadius: '4px'
+                              }} />
+                            </div>
+                            <span>{(businessRoutingResult.analysis.confidence * 100).toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 原始数据查看（可折叠） */}
+                  <details style={{ marginTop: '20px' }}>
+                    <summary style={{ cursor: 'pointer', color: '#6b7280', fontSize: '14px', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+                      查看原始数据
+                    </summary>
+                    <pre style={{
+                      maxHeight: '300px',
+                      overflow: 'auto',
+                      background: '#f8fafc',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      marginTop: '8px',
+                      fontSize: '12px'
+                    }}>
+                      {JSON.stringify(businessRoutingResult, null, 2)}
+                    </pre>
+                  </details>
+                </div>
               </div>
             )}
 
             <div className="workbench-action-block">
               <div className="workbench-action-card">
                 <div className="quick-feedback-form">
-                  <div className="quick-feedback-form-title">消息选择</div>
+                  <div className="quick-feedback-form-title">会话分析</div>
+                  <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '16px' }}>
+                    使用AI分析当前会话，自动提取关键信息并更新患者档案。系统将智能处理所有消息。
+                  </p>
+
                   <div className="quick-feedback-grid">
-                    <label className="quick-feedback-notes detail-item-wide">
-                      <span>选择消息ID</span>
-                      <div className="message-selection">
-                        <input
-                          value={selectedMessageId}
-                          onChange={(e) => setSelectedMessageId(e.target.value)}
-                          placeholder="输入消息ID，或从下拉列表选择"
-                        />
-                        {messages.length > 0 && (
-                          <select
-                            value={selectedMessageId}
-                            onChange={(e) => setSelectedMessageId(e.target.value)}
-                            className="message-dropdown"
-                          >
-                            <option value="">-- 选择消息 --</option>
-                            {messages.slice(0, 20).map((msg, index) => {
-                              const msgId = String(msg.id || msg.messageId || msg.message_id || `msg-${index}`);
-                              const content = getMessageContent(msg).trim();
-                              const sender = getMessageSender(msg);
-                              const preview = content.length > 50 ? content.substring(0, 50) + '...' : content;
-                              return (
-                                <option key={msgId} value={msgId}>
-                                  {msgId} - {sender}: {preview}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        )}
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <div className="info-box" style={{ marginBottom: '20px' }}>
+                        <strong>当前会话:</strong> {selectedConversationId}
+                        <br />
+                        <strong>消息数量:</strong> {messages.length}条
                       </div>
-                    </label>
-                    <label>
-                      <span>处理器类型</span>
-                      <select
-                        value={selectedHandlerType}
-                        onChange={(e) => setSelectedHandlerType(e.target.value as 'group-customer-service' | 'medical-assistant')}
-                      >
-                        <option value="group-customer-service">群管理机器人</option>
-                        <option value="medical-assistant">个人医生助手</option>
-                      </select>
-                    </label>
+                    </div>
                   </div>
 
-                  <div className="quick-feedback-form-title">处理操作</div>
                   <div className="workbench-action-buttons">
-                    <button
-                      type="button"
-                      disabled={mode !== 'real' || !token.trim() || !selectedMessageId || businessRoutingProcessing}
-                      onClick={() => processMessageBusinessRouting(selectedMessageId)}
-                    >
-                      处理单条消息（自动路由）
-                    </button>
-                    <button
-                      type="button"
-                      disabled={mode !== 'real' || !token.trim() || businessRoutingProcessing}
-                      onClick={() => processConversationBusinessRouting()}
-                    >
-                      处理整个会话
-                    </button>
-                    <button
-                      type="button"
-                      disabled={mode !== 'real' || !token.trim() || !selectedMessageId || businessRoutingProcessing}
-                      onClick={() => processMessageWithSpecificHandler(selectedMessageId, selectedHandlerType)}
-                    >
-                      使用指定处理器处理
-                    </button>
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        type="button"
+                        disabled={!token.trim() || businessRoutingProcessing}
+                        onClick={() => processConversationBusinessRouting()}
+                        style={{
+                          position: 'relative',
+                          padding: '16px 24px',
+                          fontSize: '16px',
+                          fontWeight: '600',
+                          backgroundColor: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '12px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          paddingRight: '56px'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.backgroundColor = '#2563eb';
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.backgroundColor = '#3b82f6';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                        }}
+                      >
+                        分析会话
+                        <span style={{
+                          position: 'absolute',
+                          right: '24px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          fontSize: '18px',
+                          fontWeight: 'bold'
+                        }}>
+                          →
+                        </span>
+                      </button>
+
+                      {!token.trim() && (
+                        <div className="info-box" style={{ marginTop: '12px', fontSize: '13px', padding: '12px' }}>
+                          <strong>需要认证:</strong> 请先设置Bearer Token以调用AI分析服务。
+                        </div>
+                      )}
+
+                      {token.trim() && messages.length === 0 && (
+                        <div className="info-box" style={{ marginTop: '12px', fontSize: '13px', padding: '12px' }}>
+                          <strong>提示:</strong> 当前会话暂无消息数据。请先加载消息或选择其他会话。
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="info-box">
-                    <strong>说明:</strong>
+                  <div className="info-box" style={{ marginTop: '20px' }}>
+                    <strong>功能说明:</strong>
                     <ul>
-                      <li><strong>处理单条消息（自动路由）:</strong> 根据消息的聊天类型自动路由到群管理机器人（群聊）或个人医生助手（私聊）</li>
-                      <li><strong>处理整个会话:</strong> 批量处理会话中的所有消息（最多50条）</li>
-                      <li><strong>使用指定处理器处理:</strong> 手动指定使用群管理机器人或个人医生助手处理消息</li>
+                      <li><strong>智能分析:</strong> AI自动分析会话中的所有消息，提取患者健康问题和关键信息</li>
+                      <li><strong>自动路由:</strong> 根据消息类型智能路由到群管理机器人或个人医生助手</li>
+                      <li><strong>档案更新:</strong> 分析结果将自动更新到患者档案，便于后续跟进</li>
+                      <li><strong>批量处理:</strong> 一次处理会话中的所有消息，无需手动选择</li>
                     </ul>
                   </div>
                 </div>
@@ -1527,8 +2038,8 @@ function ConversationDetailPage({
           <section className="panel">
             <div className="section-head">
               <div>
-                <h2>人工修正与保存</h2>
-                <p>按患者档案模型逐项修正后，再确认写入。</p>
+                <h2>人工修正</h2>
+                <p>修正患者档案信息并保存。</p>
               </div>
             </div>
             {(pendingActionsLoading || actionHistoryLoading) && <div className="info-box">正在加载保存相关信息...</div>}
@@ -1536,40 +2047,25 @@ function ConversationDetailPage({
             <div className="workbench-action-block">
               <div className="workbench-action-card">
                 <div className="quick-feedback-form">
-                  <div className="quick-feedback-form-title">逐项修正后写入档案</div>
+                  <div className="quick-feedback-form-title">人工修正</div>
+                  <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '16px' }}>修正患者档案中的信息</p>
                   <div className="quick-feedback-grid">
                     <label className="quick-feedback-notes detail-item-wide">
                       <span>核心问题</span>
-                      <input value={editableCurrentProblem} onChange={(e) => setEditableCurrentProblem(e.target.value)} placeholder="填写修正后的核心问题" />
-                    </label>
-                    <label>
-                      <span>当前状态</span>
-                      <input value={editableCurrentStatus} onChange={(e) => setEditableCurrentStatus(e.target.value)} placeholder="填写修正后的当前状态" />
-                    </label>
-                    <label className="quick-feedback-notes detail-item-wide">
-                      <span>喜好习惯 / 主要顾虑</span>
-                      <input value={editableCurrentNeeds} onChange={(e) => setEditableCurrentNeeds(e.target.value)} placeholder="填写修正后的喜好习惯或主要顾虑，多个用；分隔" />
+                      <input value={editableCurrentProblem} onChange={(e) => setEditableCurrentProblem(e.target.value)} placeholder="患者的主要健康问题" />
                     </label>
                     <label className="quick-feedback-notes detail-item-wide">
                       <span>跟进重点</span>
-                      <input value={editableCurrentNextSteps} onChange={(e) => setEditableCurrentNextSteps(e.target.value)} placeholder="填写修正后的跟进重点，多个用；分隔" />
-                    </label>
-                    <label>
-                      <span>修正类型</span>
-                      <select value={archiveCorrectionType} onChange={(e) => setArchiveCorrectionType(e.target.value as ArchiveCorrectionType)}>
-                        {ARCHIVE_CORRECTION_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                      <input value={editableCurrentNextSteps} onChange={(e) => setEditableCurrentNextSteps(e.target.value)} placeholder="后续需要跟进的重点，多个用分号分隔" />
                     </label>
                     <label className="quick-feedback-notes detail-item-wide">
                       <span>修正说明</span>
-                      <input value={quickFeedbackNotes} onChange={(e) => setQuickFeedbackNotes(e.target.value)} placeholder="填写这次具体改了什么，以及是否要写入档案" />
+                      <input value={quickFeedbackNotes} onChange={(e) => setQuickFeedbackNotes(e.target.value)} placeholder="简要说明修正内容" />
                     </label>
                   </div>
                   <div className="workbench-action-buttons">
-                    <button type="button" disabled={mode !== 'real' || !token.trim() || !(patientDetail?.id || patientDetail?.patientId || detail?.primary_customer_id || detail?.primaryCustomerId || selectedPendingAction?.patientId) || actionSubmitLoading} onClick={() => void submitSelectedActionFeedback()}>
-                      确认写入档案
+                    <button type="button" disabled={!token.trim() || !(patientDetail?.id || patientDetail?.patientId || detail?.primary_customer_id || detail?.primaryCustomerId || selectedPendingAction?.patientId) || actionSubmitLoading} onClick={() => void submitSelectedActionFeedback()}>
+                      保存修正
                     </button>
                   </div>
                 </div>
@@ -1599,9 +2095,11 @@ function ConversationDetailPage({
 
 function PatientListPage({
   data,
+  selectedConversationId,
   onOpenPatient
 }: {
   data: DashboardData;
+  selectedConversationId: string;
   onOpenPatient: (conversationId: string) => void;
 }) {
   const rows = ((data.tables.byConversation || []) as Array<Record<string, unknown>>).map((row) => {
@@ -1650,7 +2148,7 @@ function PatientListPage({
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={`${row.conversationId}-${index}`}>
+                <tr key={`${row.conversationId}-${index}`} className={row.conversationId === selectedConversationId ? 'selected' : ''}>
                   <td>{row.patientName}</td>
                   <td>{row.patientId}</td>
                   <td>{row.conversationName}</td>
@@ -1678,9 +2176,9 @@ function PatientListPage({
 
 export default function App() {
   const search = useMemo(() => new URLSearchParams(window.location.search), []);
-  const [mode, setMode] = useState<Mode>(search.get('mode') === 'real' ? 'real' : 'mock');
+  const [mode, setMode] = useState<Mode>('real');
   const [timePreset, setTimePreset] = useState<TimePreset>((search.get('timePreset') as TimePreset) || 'this_week');
-  const [token, setToken] = useState(localStorage.getItem('wecom_governance_token') || '');
+  const [token, setToken] = useState(localStorage.getItem('wecom_governance_token') || 'test-token-123');
   const [payload, setPayload] = useState<DashboardPayload>(mockPayload as DashboardPayload);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1688,14 +2186,15 @@ export default function App() {
   const [view, setView] = useState<PageView>(search.get('view') === 'conversation-detail' ? 'conversation-detail' : 'dashboard');
   const [selectedConversationId, setSelectedConversationId] = useState(search.get('conversationId') || 'wecom:private:HanCong');
 
-  async function bootstrapTrialRun() {
+
+  async function loadSampleData() {
     try {
       setTrialBootstrapping(true);
       setError('');
       const bootstrapRes = await fetch('/api/v1/workbench/trial-bootstrap', { method: 'POST' });
       const bootstrapJson = await bootstrapRes.json();
       if (!bootstrapRes.ok || !bootstrapJson.success) {
-        throw new Error(bootstrapJson.error?.message || '标准试跑样本初始化失败');
+        throw new Error(bootstrapJson.error?.message || '示例数据初始化失败');
       }
       const trialConversationId = String(bootstrapJson.data?.sample?.conversationId || 'wecom:private:HanCong');
       const loginRes = await fetch('/api/v1/auth/login', {
@@ -1705,7 +2204,7 @@ export default function App() {
       });
       const loginJson = await loginRes.json();
       if (!loginRes.ok || !loginJson.success || !loginJson.data?.accessToken) {
-        throw new Error(loginJson.error?.message || '试跑 token 获取失败');
+        throw new Error(loginJson.error?.message || '示例数据token获取失败');
       }
       const nextToken = String(loginJson.data.accessToken);
       setToken(nextToken);
@@ -1713,7 +2212,7 @@ export default function App() {
       setSelectedConversationId(trialConversationId);
       setView('conversation-detail');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '试跑入口初始化失败');
+      setError(err instanceof Error ? err.message : '示例数据加载失败');
     } finally {
       setTrialBootstrapping(false);
     }
@@ -1743,6 +2242,7 @@ export default function App() {
     }
   }
 
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     params.set('mode', mode);
@@ -1761,6 +2261,20 @@ export default function App() {
   }, [mode, timePreset, token]);
 
   const data = payload.data;
+
+  // 自动选中第一个患者（如果当前没有选中且患者列表非空）
+  useEffect(() => {
+    if (view !== 'dashboard') return;
+    const defaultConversationId = 'wecom:private:HanCong';
+    const conversations = data?.tables?.byConversation || [];
+    if (conversations.length > 0 && selectedConversationId === defaultConversationId) {
+      const firstConversation = conversations[0];
+      const firstConversationId = String(firstConversation.conversationId || firstConversation.customerId || '');
+      if (firstConversationId && firstConversationId !== defaultConversationId) {
+        setSelectedConversationId(firstConversationId);
+      }
+    }
+  }, [data?.tables?.byConversation, selectedConversationId, view]);
 
   if (view === 'conversation-detail') {
     return (
@@ -1783,6 +2297,19 @@ export default function App() {
         <ArchiveManagement
           mode={mode}
           token={token}
+          onBack={() => setView('dashboard')}
+        />
+      </div>
+    );
+  }
+
+  if (view === 'doctor-workbench') {
+    return (
+      <div className="app-shell">
+        <DoctorWorkbench
+          mode={mode}
+          token={token}
+          onBack={() => setView('dashboard')}
         />
       </div>
     );
@@ -1812,20 +2339,15 @@ export default function App() {
 
         <div className="trial-entry-banner">
           <div>
-            <strong>标准试跑入口</strong>
-            <p>一键补齐标准样本、自动获取 token、直接跳到标准会话详情。</p>
+            <strong>示例数据</strong>
+            <p>加载测试数据用于演示和培训。</p>
           </div>
-          <button className="trial-entry-btn" onClick={() => void bootstrapTrialRun()} disabled={trialBootstrapping}>
-            {trialBootstrapping ? '初始化中...' : '一键进入标准试跑'}
+          <button className="trial-entry-btn" onClick={() => void loadSampleData()} disabled={trialBootstrapping}>
+            {trialBootstrapping ? '加载中...' : '加载示例数据'}
           </button>
         </div>
 
         <div className="toolbar-row">
-          <div className="toolbar-group">
-            <span className="toolbar-label">数据模式</span>
-            <button className={mode === 'mock' ? 'active' : ''} onClick={() => setMode('mock')}>mock</button>
-            <button className={mode === 'real' ? 'active' : ''} onClick={() => setMode('real')}>real</button>
-          </div>
 
           <div className="toolbar-group">
             <span className="toolbar-label">时间范围</span>
@@ -1838,8 +2360,9 @@ export default function App() {
 
           <div className="toolbar-group">
             <span className="toolbar-label">页面视图</span>
-            <button className={view === 'dashboard' ? 'active' : ''} onClick={() => setView('dashboard')}>患者列表</button>
-            <button className={view === 'archive-management' ? 'active' : ''} onClick={() => setView('archive-management')}>档案管理</button>
+            <button className={view === ('dashboard' as PageView) ? 'active' : ''} onClick={() => setView('dashboard' as PageView)}>患者列表</button>
+            <button className={view === ('archive-management' as PageView) ? 'active' : ''} onClick={() => setView('archive-management' as PageView)}>档案管理</button>
+            <button className={view === ('doctor-workbench' as PageView) ? 'active' : ''} onClick={() => setView('doctor-workbench' as PageView)}>医生工作台</button>
           </div>
         </div>
 
@@ -1852,15 +2375,17 @@ export default function App() {
           />
         </div>
         <div className="info-box">
-          试跑入口：优先使用同域地址访问本页。Bearer Token 是后端接口访问令牌，不是大模型秘钥。当前标准获取方式：调用 `/api/v1/auth/login`，演示账号见 README / 试跑文档。
+          Bearer Token 是后端接口访问令牌，不是大模型秘钥。当前标准获取方式：调用 `/api/v1/auth/login`，演示账号见 README。
         </div>
 
         {loading && <div className="info-box">正在请求患者列表数据...</div>}
         {error && <div className="error-box">{error}</div>}
       </section>
 
+
       <PatientListPage
         data={data}
+        selectedConversationId={selectedConversationId}
         onOpenPatient={(conversationId) => {
           setSelectedConversationId(conversationId);
           setView('conversation-detail');

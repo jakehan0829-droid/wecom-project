@@ -6,6 +6,7 @@ import { db } from './infra/db/pg.js';
 import { router } from './routes.js';
 import { errorHandler } from './shared/middleware/error-handler.js';
 import { notFoundHandler } from './shared/middleware/not-found.js';
+import { responseFormatter } from './shared/middleware/response-formatter.js';
 
 async function bootstrap() {
   const app = express();
@@ -19,6 +20,8 @@ async function bootstrap() {
     }
     next();
   });
+  // 响应格式化中间件
+  app.use(responseFormatter);
   app.use(router);
   app.use(express.static(frontendDist));
   app.get('*', (req, res, next) => {
