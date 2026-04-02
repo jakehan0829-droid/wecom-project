@@ -25,3 +25,8 @@ __pycache__/
 tmp/
 temp/
 .env.deprecated-*
+
+# Playwright test reports
+frontend/playwright-report/
+frontend/test-results/
+frontend/archive-detail-debug.png
