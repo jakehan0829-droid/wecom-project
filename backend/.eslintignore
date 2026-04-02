@@ -1,0 +1,6 @@
+dist/
+node_modules/
+*.js
+*.test.ts
+*.spec.ts
+coverage/

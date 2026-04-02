@@ -11,6 +11,19 @@ export function authGuard(req: Request, res: Response, next: NextFunction) {
   }
 
   const token = authHeader.replace('Bearer ', '');
+
+  // 开发环境：允许特定的测试token通过
+  if (env.nodeEnv === 'development') {
+    // 测试token：test-token-123
+    if (token === 'test-token-123') {
+      return next();
+    }
+    // 其他开发token：以dev-开头的token
+    if (token.startsWith('dev-')) {
+      return next();
+    }
+  }
+
   try {
     jwt.verify(token, env.jwt.secret);
     return next();

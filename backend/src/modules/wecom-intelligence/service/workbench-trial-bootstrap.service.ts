@@ -12,6 +12,14 @@ const SAMPLE = {
 } as const;
 
 export async function ensureWorkbenchV1TrialSample() {
+  // 确保患者存在
+  await db.query(
+    `insert into patient (id, name, management_status, created_at)
+     values ($1, $2, 'active', now())
+     on conflict (id) do nothing`,
+    [SAMPLE.patientId, '测试患者']
+  );
+
   await db.query(
     `insert into wecom_conversations (
       conversation_id, chat_type, platform_chat_id, conversation_name,

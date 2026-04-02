@@ -69,7 +69,14 @@ function getParam(req: Request, key: string) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-router.get('/health', asyncHandler(async (_req, res) => ok(res, { status: 'ok' })));
+// 健康检查端点
+import { healthCheck, livenessProbe, readinessProbe, metrics } from './infra/monitoring/health-check.controller.js';
+
+router.get('/health', asyncHandler(healthCheck));
+router.get('/health/liveness', asyncHandler(livenessProbe));
+router.get('/health/readiness', asyncHandler(readinessProbe));
+router.get('/health/metrics', asyncHandler(metrics));
+router.get('/health/simple', asyncHandler(async (_req, res) => ok(res, { status: 'ok', timestamp: new Date().toISOString() })));
 router.post('/api/v1/auth/login', asyncHandler(async (req, res) => ok(res, await login(req.body))));
 router.post('/api/v1/workbench/trial-bootstrap', asyncHandler(async (_req, res) => ok(res, await ensureWorkbenchV1TrialSample())));
 router.get('/api/v1/wecom/webhook', asyncHandler(async (req, res) => {

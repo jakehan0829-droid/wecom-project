@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -H \"Authorization: Bearer test-token-123\" http://localhost:3000/api/v1/member-archives/test-user)",
+      "Bash(curl -s \"http://localhost:3000/api/v1/wecom/webhook?msg_signature=test&timestamp=123&nonce=456&echostr=test\")",
+      "Bash(curl -s -X POST -H \"Content-Type: application/json\" http://localhost:3000/api/v1/workbench/trial-bootstrap)",
+      "Bash(curl -s -H \"Authorization: Bearer test-token-123\" http://localhost:3000/api/v1/patients/689ca26c-b8d0-46e4-a6d3-c5b750472eff)",
+      "Bash(curl -s -X POST -H \"Authorization: Bearer test-token-123\" -H \"Content-Type: application/json\" -d '{\"messageId\":\"test-msg-1\",\"conversationId\":\"test-conv-1\",\"senderId\":\"test-user\",\"senderRole\":\"patient\",\"content\":\"我感觉头晕，血糖有点高\",\"timestamp\":\"2026-04-02T10:00:00Z\"}' http://localhost:3000/api/v1/business-routing/messages/process)",
+      "Read(//root/wecom-project/wecom-project/**)",
+      "Bash(kill %1)",
+      "Bash(env)",
+      "Read(//root/.claude/**)",
+      "Read(//root/.vscode-server/extensions/**)",
+      "Bash(curl -s -X POST -H \"Authorization: Bearer test-token-123\" -H \"Content-Type: application/json\" -d '{\"archiveType\":\"member\",\"archiveId\":\"test-user-001\",\"currentArchive\":{\"basicInfo\":\"测试用户\"}}' http://localhost:3000/api/v1/archives/analyze)",
+      "Bash(find /root/.vscode-server/extensions/anthropic.claude-code* -name \"*.json\" -o -name \"*.config\" -o -name \"*.yaml\" -o -name \"*.yml\" -o -name \"*.toml\")"
+    ]
+  }
+}

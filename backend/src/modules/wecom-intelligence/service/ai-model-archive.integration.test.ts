@@ -2,42 +2,47 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { analyzeMessageAndUpdateArchive } from '../../archive/service/archive.service.js';
 import { aiModelService } from './ai-model.service.js';
 import type { MemberArchiveRecord } from '../../archive/service/archive.service.js';
-const mockedAiModelService = aiModelService as jest.Mocked<typeof aiModelService>;
+import * as archiveService from '../../archive/service/archive.service.js';
+
 
 // Mock dependencies
-jest.mock('./ai-model.service.js', () => ({
-  analyzeMessage: jest.fn()
-}));
-
-// Mock only upsertMemberArchiveService, keep other functions from archive service
-let mockUpsertMemberArchiveService: jest.Mock;
-jest.mock('../../archive/service/archive.service.js', () => {
-  const originalModule = jest.requireActual('../../archive/service/archive.service.js') as any;
-  mockUpsertMemberArchiveService = jest.fn((userId: string, payload: Record<string, unknown>, operatorId?: string) => Promise.resolve({
-    id: 'mock-id',
-    userId,
-    conversationId: null,
-    basicInfo: null,
-    preferences: null,
-    coreProblem: null,
-    communicationSummary: null,
-    followupFocus: null,
-    personaSummary: null,
-    recentIssueSummary: null,
-    followupPlan: null,
-    sourceConversations: null,
-    updatedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString()
-  } as MemberArchiveRecord));
+jest.mock('./ai-model.service.js', () => {
+  const original = jest.requireActual('./ai-model.service.js') as any;
   return {
-    ...originalModule,
-    upsertMemberArchiveService: mockUpsertMemberArchiveService
+    ...original,
+    aiModelService: {
+      ...original.aiModelService,
+      analyzeMessage: jest.fn()
+    }
   };
 });
 
+
 describe('AI Model and Archive Integration', () => {
+  let upsertMemberArchiveServiceMock: any;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    // Mock the upsertMemberArchiveService function
+    upsertMemberArchiveServiceMock = jest.spyOn(archiveService, 'upsertMemberArchiveService')
+      .mockImplementation((userId: string, payload: Record<string, unknown>, operatorId?: string) =>
+        Promise.resolve({
+          id: 'mock-id',
+          userId,
+          conversationId: null,
+          basicInfo: null,
+          preferences: null,
+          coreProblem: null,
+          communicationSummary: null,
+          followupFocus: null,
+          personaSummary: null,
+          recentIssueSummary: null,
+          followupPlan: null,
+          sourceConversations: null,
+          updatedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        } as MemberArchiveRecord)
+      );
   });
 
   describe('analyzeMessageAndUpdateArchive', () => {
@@ -104,17 +109,17 @@ describe('AI Model and Archive Integration', () => {
       };
 
       // Mock AI service response
-      mockedAiModelService.analyzeMessage.mockResolvedValue(mockAnalysisResult);
+      (aiModelService.analyzeMessage as any).mockResolvedValue(mockAnalysisResult);
 
       // Mock archive service response
-      mockUpsertMemberArchiveService.mockResolvedValue(mockUpdatedArchive);
+      upsertMemberArchiveServiceMock.mockResolvedValue(mockUpdatedArchive);
 
       // Act
       const result = await analyzeMessageAndUpdateArchive(messageInput);
 
       // Assert
-      expect(mockedAiModelService.analyzeMessage).toHaveBeenCalledWith(messageInput);
-      expect(mockUpsertMemberArchiveService).toHaveBeenCalledWith(
+      expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
+      expect(upsertMemberArchiveServiceMock).toHaveBeenCalledWith(
         'customer-123',
         {
           basicInfo: '糖尿病患者，近期血糖控制不佳',
@@ -166,14 +171,14 @@ describe('AI Model and Archive Integration', () => {
         analysisTimestamp: '2024-01-01T10:05:00Z'
       };
 
-      mockedAiModelService.analyzeMessage.mockResolvedValue(mockAnalysisResult);
+      (aiModelService.analyzeMessage as any).mockResolvedValue(mockAnalysisResult);
 
       // Act
       const result = await analyzeMessageAndUpdateArchive(messageInput);
 
       // Assert
-      expect(mockedAiModelService.analyzeMessage).toHaveBeenCalledWith(messageInput);
-      expect(mockUpsertMemberArchiveService).not.toHaveBeenCalled();
+      expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
+      expect(upsertMemberArchiveServiceMock).not.toHaveBeenCalled();
       expect(result.analysis).toEqual(mockAnalysisResult);
       expect(result.archiveUpdated).toBe(false);
       expect(result.updatedArchive).toBeUndefined();
@@ -217,14 +222,14 @@ describe('AI Model and Archive Integration', () => {
         analysisTimestamp: '2024-01-01T10:10:00Z'
       };
 
-      mockedAiModelService.analyzeMessage.mockResolvedValue(mockAnalysisResult);
+      (aiModelService.analyzeMessage as any).mockResolvedValue(mockAnalysisResult);
 
       // Act
       const result = await analyzeMessageAndUpdateArchive(messageInput);
 
       // Assert
-      expect(mockedAiModelService.analyzeMessage).toHaveBeenCalledWith(messageInput);
-      expect(mockUpsertMemberArchiveService).not.toHaveBeenCalled();
+      expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
+      expect(upsertMemberArchiveServiceMock).not.toHaveBeenCalled();
       expect(result.archiveUpdated).toBe(false);
     });
 
@@ -271,16 +276,16 @@ describe('AI Model and Archive Integration', () => {
         analysisTimestamp: '2024-01-01T10:15:00Z'
       };
 
-      mockedAiModelService.analyzeMessage.mockResolvedValue(mockAnalysisResult);
-      mockUpsertMemberArchiveService.mockRejectedValue(new Error('Database connection failed'));
+      (aiModelService.analyzeMessage as any).mockResolvedValue(mockAnalysisResult);
+      upsertMemberArchiveServiceMock.mockRejectedValue(new Error('Database connection failed'));
 
       // Act & Assert
       await expect(analyzeMessageAndUpdateArchive(messageInput))
         .rejects
         .toThrow('Database connection failed');
 
-      expect(mockedAiModelService.analyzeMessage).toHaveBeenCalledWith(messageInput);
-      expect(mockUpsertMemberArchiveService).toHaveBeenCalled();
+      expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
+      expect(upsertMemberArchiveServiceMock).toHaveBeenCalled();
     });
   });
 });

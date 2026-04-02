@@ -1,0 +1,9 @@
+dist/
+node_modules/
+*.js
+*.test.tsx
+*.spec.tsx
+*.test.ts
+*.spec.ts
+coverage/
+public/

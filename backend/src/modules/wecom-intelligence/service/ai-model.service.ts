@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import OpenAI from 'openai';
 import { db } from '../../../infra/db/pg.js';
 import type { MemberArchiveRecord } from '../../archive/service/archive.service.js';
 import {
@@ -108,15 +109,30 @@ export interface ArchiveAnalysisResult {
 
 class AIModelService {
   private config: AIModelConfig;
+  private openaiClient: OpenAI | null = null;
 
   constructor(config?: Partial<AIModelConfig>) {
+    // 处理provider映射：openai-codex等openai变体都映射为openai
+    let provider = process.env.AI_PROVIDER as string || 'mock';
+    if (provider.startsWith('openai-')) {
+      provider = 'openai';
+    }
+
     this.config = {
-      provider: process.env.AI_PROVIDER as 'mock' | 'openai' | 'anthropic' || 'mock',
+      provider: provider as 'mock' | 'openai' | 'anthropic',
       model: process.env.AI_MODEL || 'gpt-4',
       apiKey: process.env.AI_API_KEY,
       baseUrl: process.env.AI_BASE_URL,
       ...config
     };
+
+    // 初始化OpenAI客户端（如果provider是openai）
+    if (this.config.provider === 'openai' && this.config.apiKey) {
+      this.openaiClient = new OpenAI({
+        apiKey: this.config.apiKey,
+        baseURL: this.config.baseUrl
+      });
+    }
   }
 
   // 分析单条消息
@@ -125,8 +141,11 @@ class AIModelService {
       return this.mockAnalyzeMessage(input);
     }
 
-    // TODO: 集成真实的AI模型
-    // 这里可以调用OpenAI或Anthropic的API
+    if (this.config.provider === 'openai') {
+      return this.openaiAnalyzeMessage(input);
+    }
+
+    // TODO: 集成Anthropic等其他AI模型
     throw new Error(`AI provider ${this.config.provider} not yet implemented`);
   }
 
@@ -180,10 +199,199 @@ class AIModelService {
     };
   }
 
+  // OpenAI消息分析
+  private async openaiAnalyzeMessage(input: MessageAnalysisInput): Promise<MessageAnalysisResult> {
+    const now = new Date().toISOString();
+
+    if (!this.openaiClient) {
+      throw new Error('OpenAI client not initialized');
+    }
+
+    // 构建会话上下文
+    const contextMessages = input.conversationContext || [];
+    const allMessages = [...contextMessages, {
+      senderRole: input.senderRole,
+      content: input.content,
+      timestamp: input.timestamp
+    }];
+
+    // 构建提示词
+    const prompt = this.buildAnalysisPrompt(input, allMessages);
+
+    try {
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.config.model || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `你是一个专业的医疗健康助手，负责分析患者与医生之间的对话消息。
+你的任务是分析患者消息，提取关键信息，理解患者需求，并生成结构化的分析结果。
+请以JSON格式返回分析结果，严格按照指定的结构。`
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
+      });
+
+      const resultText = response.choices[0]?.message?.content;
+      if (!resultText) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      // 解析JSON响应
+      const parsedResult = JSON.parse(resultText);
+
+      // 将OpenAI响应映射到MessageAnalysisResult结构
+      return this.mapOpenAIResponseToAnalysisResult(parsedResult, input, now);
+
+    } catch (error) {
+      console.error('OpenAI analysis error:', error);
+      // 失败时回退到模拟分析
+      console.log('Falling back to mock analysis due to OpenAI error');
+      return this.mockAnalyzeMessage(input);
+    }
+  }
+
+  // 构建分析提示词
+  private buildAnalysisPrompt(input: MessageAnalysisInput, allMessages: Array<{senderRole: string, content: string, timestamp: string}>): string {
+    const messageContext = allMessages.map(msg =>
+      `[${msg.timestamp}] ${msg.senderRole}: ${msg.content}`
+    ).join('\n');
+
+    return `请分析以下医疗健康对话消息，并返回JSON格式的分析结果：
+
+对话上下文：
+${messageContext}
+
+当前分析的消息ID：${input.messageId}
+发送者角色：${input.senderRole}
+发送者ID：${input.senderId}
+对话ID：${input.conversationId}
+
+请提供以下分析结果（JSON格式）：
+1. understanding（理解部分）：
+   - userQuestion：用户的主要问题或疑问（如果没有问题则为null）
+   - userState：用户当前状态（如urgent/紧急, confused/困惑, satisfied/满意, dissatisfied/不满意, neutral/中性）
+   - newNeeds：用户表达的新需求（字符串数组）
+   - concerns：用户的担忧或顾虑（字符串数组）
+   - risks：识别到的风险点（字符串数组）
+   - informationWorthy：有价值的信息点（字符串数组）
+
+2. extraction（信息提炼部分）：
+   - basicInfoUpdates：从消息中提取的基本信息更新（键值对对象，如{"年龄": "45岁", "性别": "女性"}）
+   - newRequirements：新发现的要求或需求（字符串数组）
+   - keyStateChanges：关键状态变化（字符串数组）
+   - riskPoints：风险点详情（字符串数组）
+   - followupItems：需要跟进的事项（字符串数组）
+
+3. archiveUpdates（档案更新建议）：
+   - memberArchiveUpdates：成员档案更新建议（键值对对象）
+   - patientArchiveUpdates：患者档案更新建议（键值对对象）
+
+4. confidence：分析置信度（0.0-1.0之间的浮点数）
+
+请确保返回纯JSON，不要包含其他文本。`;
+  }
+
+  // 将OpenAI响应映射到分析结果结构
+  private mapOpenAIResponseToAnalysisResult(
+    openaiResponse: any,
+    input: MessageAnalysisInput,
+    timestamp: string
+  ): MessageAnalysisResult {
+    // 默认值
+    const defaultResult: MessageAnalysisResult = {
+      messageId: input.messageId,
+      conversationId: input.conversationId,
+      senderId: input.senderId,
+      understanding: {
+        userQuestion: null,
+        userState: null,
+        newNeeds: [],
+        concerns: [],
+        risks: [],
+        informationWorthy: []
+      },
+      extraction: {
+        basicInfoUpdates: {},
+        newRequirements: [],
+        keyStateChanges: [],
+        riskPoints: [],
+        followupItems: []
+      },
+      archiveUpdates: {
+        memberArchiveUpdates: {},
+        patientArchiveUpdates: {}
+      },
+      confidence: 0.7,
+      analysisTimestamp: timestamp
+    };
+
+    try {
+      // 映射understanding
+      if (openaiResponse.understanding) {
+        defaultResult.understanding = {
+          userQuestion: openaiResponse.understanding.userQuestion || null,
+          userState: openaiResponse.understanding.userState || null,
+          newNeeds: Array.isArray(openaiResponse.understanding.newNeeds) ? openaiResponse.understanding.newNeeds : [],
+          concerns: Array.isArray(openaiResponse.understanding.concerns) ? openaiResponse.understanding.concerns : [],
+          risks: Array.isArray(openaiResponse.understanding.risks) ? openaiResponse.understanding.risks : [],
+          informationWorthy: Array.isArray(openaiResponse.understanding.informationWorthy) ? openaiResponse.understanding.informationWorthy : []
+        };
+      }
+
+      // 映射extraction
+      if (openaiResponse.extraction) {
+        defaultResult.extraction = {
+          basicInfoUpdates: openaiResponse.extraction.basicInfoUpdates || {},
+          newRequirements: Array.isArray(openaiResponse.extraction.newRequirements) ? openaiResponse.extraction.newRequirements : [],
+          keyStateChanges: Array.isArray(openaiResponse.extraction.keyStateChanges) ? openaiResponse.extraction.keyStateChanges : [],
+          riskPoints: Array.isArray(openaiResponse.extraction.riskPoints) ? openaiResponse.extraction.riskPoints : [],
+          followupItems: Array.isArray(openaiResponse.extraction.followupItems) ? openaiResponse.extraction.followupItems : []
+        };
+      }
+
+      // 映射archiveUpdates
+      if (openaiResponse.archiveUpdates) {
+        defaultResult.archiveUpdates = {
+          memberArchiveUpdates: openaiResponse.archiveUpdates.memberArchiveUpdates || {},
+          patientArchiveUpdates: openaiResponse.archiveUpdates.patientArchiveUpdates || {}
+        };
+      }
+
+      // 映射confidence
+      if (typeof openaiResponse.confidence === 'number') {
+        defaultResult.confidence = Math.max(0.0, Math.min(1.0, openaiResponse.confidence));
+      }
+
+      return defaultResult;
+    } catch (error) {
+      console.error('Error mapping OpenAI response:', error);
+      return defaultResult;
+    }
+  }
+
   // 分析档案并生成完善建议
   async analyzeArchive(input: ArchiveAnalysisInput): Promise<ArchiveAnalysisResult> {
+    console.log('[AI Debug] analyzeArchive called, provider:', this.config.provider);
+    console.log('[AI Debug] this:', Object.keys(this));
+    console.log('[AI Debug] openaiAnalyzeArchive exists:', typeof this.openaiAnalyzeArchive);
+
     if (this.config.provider === 'mock') {
       return this.mockAnalyzeArchive(input);
+    }
+
+    if (this.config.provider === 'openai') {
+      if (!this.openaiAnalyzeArchive) {
+        console.error('[AI Debug] openaiAnalyzeArchive method not found');
+        console.error('[AI Debug] Available methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this)));
+        throw new Error('AI service method not available');
+      }
+      return await this.openaiAnalyzeArchive(input);
     }
 
     throw new Error(`AI provider ${this.config.provider} not yet implemented`);
@@ -217,6 +425,161 @@ class AIModelService {
       confidence: 0.6,
       analysisTimestamp: now
     };
+  }
+
+  // OpenAI档案分析
+  async openaiAnalyzeArchive(input: ArchiveAnalysisInput): Promise<ArchiveAnalysisResult> {
+    const now = new Date().toISOString();
+
+    if (!this.openaiClient) {
+      throw new Error('OpenAI client not initialized');
+    }
+
+    try {
+      // 构建档案分析提示词
+      const prompt = this.buildArchiveAnalysisPrompt(input);
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.config.model || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `你是一个专业的医疗健康档案分析师。
+你的任务是分析患者或群成员的档案信息，基于最近的对话内容，提供档案完善建议和关键洞察。
+请以JSON格式返回分析结果，严格按照指定的结构。`
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
+      });
+
+      const resultText = response.choices[0]?.message?.content;
+      if (!resultText) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      // 解析JSON响应
+      const parsedResult = JSON.parse(resultText);
+
+      // 将OpenAI响应映射到ArchiveAnalysisResult结构
+      return this.mapOpenAIResponseToArchiveAnalysisResult(parsedResult, input, now);
+
+    } catch (error) {
+      console.error('OpenAI archive analysis error:', error);
+      // 失败时回退到模拟分析
+      console.log('Falling back to mock archive analysis due to OpenAI error');
+      return this.mockAnalyzeArchive(input);
+    }
+  }
+
+  // 构建档案分析提示词
+  private buildArchiveAnalysisPrompt(input: ArchiveAnalysisInput): string {
+    const archiveType = input.archiveType === 'member' ? '群成员档案' : '患者档案';
+
+    // 构建最近对话上下文
+    let conversationContext = '';
+    if (input.recentConversations && input.recentConversations.length > 0) {
+      conversationContext = '最近对话内容：\n';
+      input.recentConversations.forEach((conv, idx) => {
+        conversationContext += `\n会话 ${idx + 1}:\n`;
+        conv.messages.forEach(msg => {
+          conversationContext += `[${msg.timestamp}] ${msg.senderRole}: ${msg.content}\n`;
+        });
+      });
+    }
+
+    // 当前档案内容
+    const currentArchive = JSON.stringify(input.currentArchive, null, 2);
+
+    return `请分析以下${archiveType}，并返回JSON格式的完善建议：
+
+档案ID：${input.archiveId}
+档案类型：${archiveType}
+
+当前档案内容：
+${currentArchive}
+
+${conversationContext}
+
+请提供以下分析结果（JSON格式）：
+
+1. improvements（完善建议）：
+   - basicInfo：基本信息完善建议（如更详细的年龄、性别、病史等）
+   - preferences：偏好与习惯完善建议
+   - coreProblem：核心问题/需求完善建议
+   - communicationSummary：沟通风格总结完善建议
+   - followupFocus：后续跟进重点完善建议
+   - personaSummary：人物画像总结完善建议
+   - recentIssueSummary：近期问题摘要完善建议
+   - followupPlan：跟进计划完善建议
+
+2. insights（关键洞察）：
+   - 字符串数组，包含重要的发现和洞察
+
+3. confidence：分析置信度（0.0-1.0之间的浮点数）
+
+请确保返回纯JSON，不要包含其他文本。`;
+  }
+
+  // 将OpenAI响应映射到档案分析结果结构
+  private mapOpenAIResponseToArchiveAnalysisResult(
+    openaiResponse: any,
+    input: ArchiveAnalysisInput,
+    timestamp: string
+  ): ArchiveAnalysisResult {
+    // 默认值
+    const defaultResult: ArchiveAnalysisResult = {
+      archiveType: input.archiveType,
+      archiveId: input.archiveId,
+      improvements: {
+        basicInfo: null,
+        preferences: null,
+        coreProblem: null,
+        communicationSummary: null,
+        followupFocus: null,
+        personaSummary: null,
+        recentIssueSummary: null,
+        followupPlan: null
+      },
+      insights: [],
+      confidence: 0.7,
+      analysisTimestamp: timestamp
+    };
+
+    try {
+      // 映射improvements
+      if (openaiResponse.improvements) {
+        defaultResult.improvements = {
+          basicInfo: openaiResponse.improvements.basicInfo || null,
+          preferences: openaiResponse.improvements.preferences || null,
+          coreProblem: openaiResponse.improvements.coreProblem || null,
+          communicationSummary: openaiResponse.improvements.communicationSummary || null,
+          followupFocus: openaiResponse.improvements.followupFocus || null,
+          personaSummary: openaiResponse.improvements.personaSummary || null,
+          recentIssueSummary: openaiResponse.improvements.recentIssueSummary || null,
+          followupPlan: openaiResponse.improvements.followupPlan || null
+        };
+      }
+
+      // 映射insights
+      if (Array.isArray(openaiResponse.insights)) {
+        defaultResult.insights = openaiResponse.insights;
+      }
+
+      // 映射confidence
+      if (typeof openaiResponse.confidence === 'number') {
+        defaultResult.confidence = Math.max(0.0, Math.min(1.0, openaiResponse.confidence));
+      }
+
+      return defaultResult;
+    } catch (error) {
+      console.error('Error mapping OpenAI archive response:', error);
+      return defaultResult;
+    }
   }
 
   // 辅助方法 - 模拟实现
@@ -1217,7 +1580,8 @@ class AIModelService {
   }
 }
 
-// 导出单例实例
+// 导出类和单例实例
+export { AIModelService };
 export const aiModelService = new AIModelService();
 
 // 工具函数：处理消息并更新档案

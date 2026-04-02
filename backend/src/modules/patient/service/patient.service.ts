@@ -83,10 +83,10 @@ export async function getPatientDetailService(id: string) {
       [id]
     ),
     db.query(
-      `select id as "insightId", summary as "summaryText", confidence, created_at as "generatedAt"
-         from wecom_conversation_insights_v1
-        where patient_ref = $1
-        order by created_at desc
+      `select insight_id as "insightId", summary_text as "summaryText", confidence_score as "confidence", generated_at as "generatedAt"
+         from wecom_conversation_insights
+        where linked_customer_id = $1
+        order by generated_at desc
         limit 1`,
       [id]
     ),

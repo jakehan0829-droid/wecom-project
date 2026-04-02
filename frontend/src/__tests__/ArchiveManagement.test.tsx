@@ -58,19 +58,24 @@ describe('ArchiveManagement Component', () => {
 
   test('displays loading state when fetching data', async () => {
     // Mock fetch to delay response
-    mockFetch.mockImplementation(() =>
-      new Promise(resolve =>
-        setTimeout(() => resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { archives: [], total_count: 0 } })
-        }), 100)
-      )
-    );
+    let resolvePromise: any;
+    const delayedPromise = new Promise(resolve => {
+      resolvePromise = () => resolve({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { items: [], total_count: 0 } })
+      });
+    });
 
-    render(<ArchiveManagement {...defaultProps} />);
+    mockFetch.mockImplementation(() => delayedPromise);
 
-    // 检查加载状态
+    // 使用real模式测试加载状态
+    render(<ArchiveManagement mode="real" token="test-token" />);
+
+    // 检查加载状态 - 组件显示"加载中..."
     expect(screen.getByText(/加载中|Loading/i)).toBeInTheDocument();
+
+    // 解析promise让数据加载完成
+    resolvePromise();
 
     // 等待数据加载完成
     await waitFor(() => {
@@ -85,28 +90,49 @@ describe('ArchiveManagement Component', () => {
       json: () => Promise.resolve({ success: false, message: '服务器错误' })
     });
 
-    render(<ArchiveManagement {...defaultProps} />);
+    // 使用real模式测试API错误
+    render(<ArchiveManagement mode="real" token="test-token" />);
 
-    // 等待错误信息显示
+    // 等待错误信息显示 - 组件会显示格式化的错误信息
+    // HTTP 500错误会显示: "服务器内部错误 (500): 后端服务出现异常。请检查后端日志或联系管理员。"
     await waitFor(() => {
-      expect(screen.getByText(/服务器错误|Server error/i)).toBeInTheDocument();
+      expect(screen.getByText(/服务器内部错误|后端服务出现异常/i)).toBeInTheDocument();
     });
   });
 
-  test('allows searching archives', async () => {
-    // Mock successful response
+  test('displays mock archives in mock mode', async () => {
+    render(<ArchiveManagement {...defaultProps} />);
+
+    // 在mock模式下应该显示预定义的mock数据：user123和user456
+    await waitFor(() => {
+      expect(screen.getByText('user123')).toBeInTheDocument();
+      expect(screen.getByText('user456')).toBeInTheDocument();
+    });
+  });
+
+  test('allows searching archives in real mode', async () => {
+    // Mock successful response for real mode
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
         success: true,
         data: {
-          archives: [
+          items: [
             {
               id: '1',
               userId: 'user1',
-              display_name: '测试用户',
+              conversationId: 'conv123',
               basicInfo: '{"age": 30, "gender": "male"}',
-              updatedAt: '2024-01-01T10:00:00Z'
+              preferences: null,
+              coreProblem: null,
+              communicationSummary: null,
+              followupFocus: null,
+              personaSummary: null,
+              recentIssueSummary: null,
+              followupPlan: null,
+              sourceConversations: null,
+              updatedAt: '2024-01-01T10:00:00Z',
+              createdAt: '2024-01-01T10:00:00Z'
             }
           ],
           total_count: 1
@@ -114,33 +140,32 @@ describe('ArchiveManagement Component', () => {
       })
     });
 
-    render(<ArchiveManagement {...defaultProps} />);
+    // 使用real模式测试API调用
+    render(<ArchiveManagement mode="real" token="test-token" />);
 
-    // 等待数据加载
+    // 等待数据加载 - 组件显示的是userId字段
     await waitFor(() => {
-      expect(screen.getByText('测试用户')).toBeInTheDocument();
+      expect(screen.getByText('user1')).toBeInTheDocument();
     });
 
     // 输入搜索关键词
-    const searchInput = screen.getByPlaceholderText(/搜索档案|Search archives/i);
+    const searchInput = screen.getByPlaceholderText(/输入关键词搜索档案/i);
     await userEvent.type(searchInput, '测试');
 
-    // 检查搜索功能（这里假设组件有实时搜索或搜索按钮）
-    const searchButton = screen.getByRole('button', { name: /搜索|Search/i });
-    if (searchButton) {
-      await userEvent.click(searchButton);
-    }
+    // 检查搜索按钮并点击
+    const searchButton = screen.getByRole('button', { name: /搜索/i });
+    expect(searchButton).toBeInTheDocument();
+    await userEvent.click(searchButton);
   });
 
-  test('calls onBack callback when back button is clicked', () => {
+  test('calls onBack callback when back button is clicked', async () => {
     const onBackMock = jest.fn();
     render(<ArchiveManagement {...defaultProps} onBack={onBackMock} />);
 
-    // 查找返回按钮并点击
-    const backButton = screen.getByRole('button', { name: /返回|Back/i });
-    if (backButton) {
-      userEvent.click(backButton);
-      expect(onBackMock).toHaveBeenCalledTimes(1);
-    }
+    // 查找返回按钮并点击 - 按钮文本为"← 返回工作台"
+    const backButton = screen.getByText(/← 返回工作台/i);
+    expect(backButton).toBeInTheDocument();
+    await userEvent.click(backButton);
+    expect(onBackMock).toHaveBeenCalledTimes(1);
   });
 });

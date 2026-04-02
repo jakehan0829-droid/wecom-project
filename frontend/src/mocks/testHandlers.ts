@@ -1,12 +1,12 @@
-// 测试环境专用的MSW配置
-// 在Jest的jsdom环境中，我们无法使用msw/node，所以这里创建一个简化版本
-
-import { http, HttpResponse } from 'msw';
+// 测试环境专用的handlers，不依赖msw
+// 这个文件只用于单元测试，避免在jsdom环境中导入msw
 
 // 测试环境专用的handlers
-const testHandlers = [
-  http.get('*/api/v1/dashboard/overview', () => {
-    return HttpResponse.json({
+export const testHandlers = [
+  {
+    method: 'GET',
+    url: '*/api/v1/dashboard/overview',
+    response: () => ({
       success: true,
       data: {
         total_patients: 150,
@@ -14,12 +14,17 @@ const testHandlers = [
         total_conversations: 45,
         active_conversations: 30,
         pending_reviews: 8,
+        recent_activities: [
+          { id: 'act1', type: 'message', description: 'New patient message', time: '2024-01-01T10:30:00Z' },
+          { id: 'act2', type: 'archive_update', description: 'Patient profile updated', time: '2024-01-01T09:45:00Z' },
+        ],
       },
-    });
-  }),
-
-  http.get('*/api/v1/wecom/conversations', () => {
-    return HttpResponse.json({
+    }),
+  },
+  {
+    method: 'GET',
+    url: '*/api/v1/wecom/conversations',
+    response: () => ({
       success: true,
       data: {
         conversations: [
@@ -33,11 +38,12 @@ const testHandlers = [
         ],
         total_count: 1,
       },
-    });
-  }),
-
-  http.get('*/api/v1/member-archives', () => {
-    return HttpResponse.json({
+    }),
+  },
+  {
+    method: 'GET',
+    url: '*/api/v1/member-archives',
+    response: () => ({
       success: true,
       data: {
         archives: [
@@ -50,40 +56,31 @@ const testHandlers = [
         ],
         total_count: 1,
       },
-    });
-  }),
-
-  http.post('*/api/v1/auth/login', () => {
-    return HttpResponse.json({
+    }),
+  },
+  {
+    method: 'POST',
+    url: '*/api/v1/auth/login',
+    response: () => ({
       success: true,
       data: { token: 'test-jwt-token' },
-    });
-  }),
-
-  // 默认处理器
-  http.all('*', ({ request }) => {
-    console.warn(`[Test MSW] Unhandled request: ${request.method} ${request.url}`);
-    return HttpResponse.json({
-      success: false,
-      data: null,
-      message: 'No handler for this request in test environment',
-    }, { status: 404 });
-  }),
+    }),
+  },
 ];
 
 // 创建server的简化版本
 export const server = {
   listen: (options?: any) => {
     console.log('[Test MSW] Server listening');
-    // 在实际实现中，这里会设置拦截器
+    // 在测试环境中不需要实际设置
   },
   resetHandlers: () => {
     console.log('[Test MSW] Handlers reset');
-    // 在实际实现中，这里会重置处理器
+    // 在测试环境中不需要实际重置
   },
   close: () => {
     console.log('[Test MSW] Server closed');
-    // 在实际实现中，这里会清理拦截器
+    // 在测试环境中不需要实际清理
   },
 };
 

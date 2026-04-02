@@ -88,3 +88,81 @@ export async function createWeightRecordService(patientId: string, payload: Reco
   );
   return result.rows[0];
 }
+
+// 获取患者健康记录汇总
+export async function getPatientHealthRecordsService(patientId: string, limit = 50) {
+  // 获取血糖记录
+  const glucoseResult = await db.query(
+    `select id, patient_id as "patientId", measure_time as "measureTime", glucose_value as "value", measure_scene as "scene", source, 'glucose' as "type"
+     from health_record_glucose
+     where patient_id = $1
+     order by measure_time desc
+     limit $2`,
+    [patientId, limit]
+  );
+
+  // 获取血压记录
+  const bloodPressureResult = await db.query(
+    `select id, patient_id as "patientId", measure_time as "measureTime", systolic_value as "systolicValue", diastolic_value as "diastolicValue", source, 'blood_pressure' as "type"
+     from health_record_blood_pressure
+     where patient_id = $1
+     order by measure_time desc
+     limit $2`,
+    [patientId, limit]
+  );
+
+  // 获取体重记录
+  const weightResult = await db.query(
+    `select id, patient_id as "patientId", measure_time as "measureTime", weight_value as "value", source, 'weight' as "type"
+     from health_record_weight
+     where patient_id = $1
+     order by measure_time desc
+     limit $2`,
+    [patientId, limit]
+  );
+
+  // 计算最近7天的趋势数据
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const recentGlucose = await db.query(
+    `select avg(glucose_value) as avg_value, count(*) as record_count
+     from health_record_glucose
+     where patient_id = $1 and measure_time >= $2`,
+    [patientId, sevenDaysAgo]
+  );
+
+  const recentBloodPressure = await db.query(
+    `select avg(systolic_value) as avg_systolic, avg(diastolic_value) as avg_diastolic, count(*) as record_count
+     from health_record_blood_pressure
+     where patient_id = $1 and measure_time >= $2`,
+    [patientId, sevenDaysAgo]
+  );
+
+  const recentWeight = await db.query(
+    `select avg(weight_value) as avg_value, count(*) as record_count
+     from health_record_weight
+     where patient_id = $1 and measure_time >= $2`,
+    [patientId, sevenDaysAgo]
+  );
+
+  return {
+    glucoseRecords: glucoseResult.rows,
+    bloodPressureRecords: bloodPressureResult.rows,
+    weightRecords: weightResult.rows,
+    recentTrends: {
+      glucose: {
+        averageValue: recentGlucose.rows[0]?.avg_value || null,
+        recordCount: recentGlucose.rows[0]?.record_count || 0
+      },
+      bloodPressure: {
+        averageSystolic: recentBloodPressure.rows[0]?.avg_systolic || null,
+        averageDiastolic: recentBloodPressure.rows[0]?.avg_diastolic || null,
+        recordCount: recentBloodPressure.rows[0]?.record_count || 0
+      },
+      weight: {
+        averageValue: recentWeight.rows[0]?.avg_value || null,
+        recordCount: recentWeight.rows[0]?.record_count || 0
+      }
+    }
+  };
+}
