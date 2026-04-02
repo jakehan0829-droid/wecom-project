@@ -431,3 +431,115 @@ docker-compose -f docker-compose.prod.yml up -d --scale backend=3
 - 配置Redis哨兵模式
 - 设置负载均衡器
 - 实现服务发现
+
+## CI/CD自动化部署
+
+### GitHub Actions流水线配置
+
+项目已配置完整的CI/CD流水线，包含以下阶段：
+
+1. **代码质量检查**: ESLint + Prettier代码规范检查
+2. **自动化测试**: 单元测试、集成测试、端到端测试
+3. **容器镜像构建**: 构建前后端Docker镜像
+4. **生产环境部署**: 自动部署到服务器
+
+### GitHub Secrets配置
+
+在GitHub仓库中配置以下Secrets以启用自动化部署：
+
+| Secret名称 | 描述 | 示例值 |
+|------------|------|--------|
+| `DOCKER_USERNAME` | Docker Hub用户名 | `yourdockeruser` |
+| `DOCKER_PASSWORD` | Docker Hub密码或访问令牌 | `yourpassword` |
+| `DEPLOY_HOST` | 部署服务器IP地址 | `1.2.3.4` |
+| `DEPLOY_USER` | 部署服务器SSH用户名 | `ubuntu` |
+| `DEPLOY_SSH_KEY` | 部署服务器SSH私钥 | `-----BEGIN RSA PRIVATE KEY-----...` |
+
+### 配置步骤
+
+1. **进入GitHub仓库设置**:
+   - 访问 `https://github.com/<username>/<repository>/settings/secrets/actions`
+   - 点击 "New repository secret"
+
+2. **配置Docker Hub凭证**:
+   ```bash
+   # 生成Docker Hub访问令牌（推荐使用令牌而非密码）
+   # 访问 https://hub.docker.com/settings/security
+   # 创建访问令牌，授予读写权限
+   ```
+
+3. **配置服务器SSH访问**:
+   ```bash
+   # 在本地生成SSH密钥对
+   ssh-keygen -t rsa -b 4096 -C "deploy@wecom-project"
+   
+   # 将公钥添加到服务器的~/.ssh/authorized_keys
+   # 将私钥内容复制到DEPLOY_SSH_KEY Secret
+   ```
+
+### 手动触发部署
+
+1. **推送代码到main分支**: 自动触发完整部署流程
+2. **查看部署状态**: 在GitHub仓库的Actions标签页查看进度
+3. **验证部署结果**: 检查服务器上的容器状态
+
+### 环境变量管理
+
+生产环境变量通过以下方式管理：
+
+1. **Docker Compose环境变量**: 在`docker-compose.prod.yml`中定义
+2. **.env.production文件**: 包含默认值和环境变量引用
+3. **GitHub Actions环境变量**: 在CI/CD流水线中设置测试环境变量
+
+### 安全最佳实践
+
+1. **定期轮换密钥**: 每3-6个月更新JWT_SECRET、数据库密码
+2. **最小权限原则**: 为Docker Hub令牌和SSH密钥授予最小必要权限
+3. **监控和告警**: 设置部署失败告警和容器健康状态监控
+4. **备份策略**: 定期备份数据库和配置文件
+
+### 故障排除
+
+#### 部署失败常见原因
+
+1. **GitHub Secrets配置错误**:
+   - 验证Secret名称和值是否正确
+   - 检查SSH私钥格式（必须包含完整的BEGIN/END标记）
+
+2. **服务器连接问题**:
+   ```bash
+   # 测试SSH连接
+   ssh -i deploy_key.pem ubuntu@1.2.3.4
+   ```
+
+3. **Docker镜像推送失败**:
+   - 验证Docker Hub凭证
+   - 检查网络连接和防火墙设置
+
+4. **容器启动失败**:
+   ```bash
+   # 在服务器上查看容器日志
+   docker logs wecom-backend
+   docker logs wecom-frontend
+   ```
+
+#### 回滚策略
+
+如果部署出现问题，可以手动回滚：
+
+```bash
+# 在服务器上执行
+cd /opt/wecom-project
+# 回滚到上一个版本
+docker-compose -f docker-compose.prod.yml up -d --force-recreate
+# 或使用特定镜像标签
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### 扩展功能
+
+1. **多环境部署**: 配置development、staging、production环境
+2. **蓝绿部署**: 实现零停机部署
+3. **自动回滚**: 配置健康检查失败时自动回滚
+4. **监控集成**: 集成Prometheus、Grafana监控栈
