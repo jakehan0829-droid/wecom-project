@@ -38,7 +38,7 @@ import {
   getMessageBusinessProcessingResult
 } from './modules/wecom-intelligence/controller/business-routing.controller.js';
 import { getWecomOpsSummary } from './modules/wecom-intelligence/controller/ops-dashboard.controller.js';
-import { createGlucoseRecord, createBloodPressureRecord, createWeightRecord } from './modules/health-record/controller/health-record.controller.js';
+import { createGlucoseRecord, createBloodPressureRecord, createWeightRecord, getPatientHealthRecords } from './modules/health-record/controller/health-record.controller.js';
 import { createDoctorReviewTask, listDoctorReviewTask, updateDoctorReviewTaskStatus } from './modules/dashboard/controller/doctor-review.controller.js';
 import { getDashboardOverview } from './modules/dashboard/controller/dashboard.controller.js';
 import { getWecomDashboardMetrics } from './modules/dashboard/controller/dashboard-metrics.controller.js';
@@ -152,6 +152,7 @@ router.get('/api/v1/wecom/ops-summary', asyncHandler(async (_req, res) => ok(res
 router.post('/api/v1/patients/:id/glucose-records', asyncHandler(async (req, res) => created(res, await createGlucoseRecord(getParam(req, 'id'), req.body))));
 router.post('/api/v1/patients/:id/blood-pressure-records', asyncHandler(async (req, res) => created(res, await createBloodPressureRecord(getParam(req, 'id'), req.body))));
 router.post('/api/v1/patients/:id/weight-records', asyncHandler(async (req, res) => created(res, await createWeightRecord(getParam(req, 'id'), req.body))));
+router.get('/api/v1/patients/:id/health-records', asyncHandler(async (req, res) => ok(res, await getPatientHealthRecords(getParam(req, 'id'), typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined))));
 
 router.get('/api/v1/dashboard/overview', asyncHandler(async (_req, res) => ok(res, await getDashboardOverview())));
 router.get('/api/v1/dashboard/wecom-metrics', asyncHandler(async (_req, res) => ok(res, await getWecomDashboardMetrics())));

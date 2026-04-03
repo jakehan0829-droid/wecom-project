@@ -310,8 +310,16 @@ export async function analyzeArchiveForImprovements(
       };
     }
   } else {
-    // TODO: 患者档案查询
-    // 暂时留空
+    const result = await db.query(
+      `select basic_info as "basicInfo", preferences, core_problem as "coreProblem", communication_summary as "communicationSummary", followup_focus as "followupFocus", persona_summary as "personaSummary", recent_issue_summary as "recentIssueSummary", followup_plan as "followupPlan", source_conversations as "sourceConversations"
+       from patient_profile_ext
+       where patient_id = $1
+       limit 1`,
+      [archiveId]
+    );
+    if (result.rows[0]) {
+      currentArchive = result.rows[0];
+    }
   }
 
   const input: ArchiveAnalysisInput = {
@@ -334,15 +342,61 @@ export async function analyzeConversationAndUpdateArchives(
   archivesUpdated: number;
   analysisSummary: string[];
 }> {
-  // TODO: 获取会话消息
-  // 暂时返回模拟结果
-  console.log(`[Archive AI] Would analyze conversation ${conversationId} and update member archives`);
+  const messagesResult = await db.query(
+    `select id, sender_id as "senderId", sender_role as "senderRole", content_text as "content", sent_at as "timestamp"
+     from wecom_messages
+     where conversation_id = $1
+     order by sent_at asc
+     limit $2`,
+    [conversationId, messageLimit]
+  );
+
+  const messages = messagesResult.rows;
+  if (messages.length === 0) {
+    return {
+      conversationId,
+      totalMessages: 0,
+      archivesUpdated: 0,
+      analysisSummary: ['No messages found for this conversation']
+    };
+  }
+
+  // 找出所有客户发送者，逐一分析并更新档案
+  const customerSenders = [...new Set(
+    messages.filter(m => m.senderRole === 'customer').map(m => m.senderId)
+  )];
+
+  let archivesUpdated = 0;
+  const analysisSummary: string[] = [];
+
+  for (const senderId of customerSenders) {
+    try {
+      const lastMsg = messages.filter(m => m.senderId === senderId).at(-1);
+      if (!lastMsg) continue;
+
+      const result = await analyzeMessageAndUpdateArchive({
+        messageId: lastMsg.id,
+        conversationId,
+        senderId,
+        senderRole: 'customer',
+        content: lastMsg.content || '',
+        timestamp: lastMsg.timestamp
+      });
+
+      if (result.archiveUpdated) {
+        archivesUpdated++;
+        analysisSummary.push(`Updated archive for sender ${senderId}`);
+      }
+    } catch (error) {
+      analysisSummary.push(`Failed to update archive for sender ${senderId}: ${(error as Error).message}`);
+    }
+  }
 
   return {
     conversationId,
-    totalMessages: 0,
-    archivesUpdated: 0,
-    analysisSummary: ['AI analysis integration pending']
+    totalMessages: messages.length,
+    archivesUpdated,
+    analysisSummary
   };
 }
 
@@ -358,8 +412,7 @@ export async function getArchiveAnalysisHistory(
   confidence: number;
   timestamp: string;
 }>> {
-  // TODO: 实现分析历史记录
-  // 暂时返回空数组
+  // Analysis history storage is not yet implemented; return empty list
   return [];
 }
 
@@ -466,4 +519,20 @@ export async function getPatientProfileService(patientId: string): Promise<Patie
   );
 
   return result.rows[0] || null;
+}
+
+// 获取适合注入AI私聊上下文的档案摘要（过滤敏感字段，只返回有值的内容）
+export async function getArchiveForAIContext(userId: string): Promise<string | null> {
+  const archive = await getMemberArchiveService(userId);
+  if (!archive) return null;
+
+  const parts: string[] = [];
+  if (archive.basicInfo) parts.push(`基本信息：${archive.basicInfo}`);
+  if (archive.coreProblem) parts.push(`核心问题：${archive.coreProblem}`);
+  if (archive.preferences) parts.push(`偏好习惯：${archive.preferences}`);
+  if (archive.followupFocus) parts.push(`随访重点：${archive.followupFocus}`);
+  if (archive.recentIssueSummary) parts.push(`近期状况：${archive.recentIssueSummary}`);
+  if (archive.followupPlan) parts.push(`随访计划：${archive.followupPlan}`);
+
+  return parts.length > 0 ? parts.join('\n') : null;
 }

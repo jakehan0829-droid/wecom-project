@@ -279,6 +279,34 @@ create table if not exists archive_change_log (
   created_at timestamptz not null default now()
 );
 
+create table if not exists wecom_conversation_insights_v1 (
+  id bigserial primary key,
+  conversation_id varchar(128) not null,
+  customer_id varchar(128),
+  patient_id varchar(128),
+  customer_ref varchar(255),
+  patient_ref varchar(255),
+  analysis_version varchar(32) not null default 'v1',
+  summary text not null,
+  stage varchar(64) not null default 'unknown',
+  needs_json jsonb not null default '[]'::jsonb,
+  concerns_json jsonb not null default '[]'::jsonb,
+  objections_json jsonb not null default '[]'::jsonb,
+  risks_json jsonb not null default '[]'::jsonb,
+  next_actions_json jsonb not null default '[]'::jsonb,
+  confidence varchar(16) not null default 'low',
+  evidence_message_ids_json jsonb not null default '[]'::jsonb,
+  source_message_count integer not null default 0,
+  source_window_start_at timestamptz,
+  source_window_end_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_wecom_conversation_insights_v1_conversation_created_at on wecom_conversation_insights_v1(conversation_id, created_at desc);
+create index if not exists idx_wecom_conversation_insights_v1_customer_id on wecom_conversation_insights_v1(customer_id);
+create index if not exists idx_wecom_conversation_insights_v1_confidence on wecom_conversation_insights_v1(confidence);
+
 create index if not exists idx_member_archive_user_id on member_archive(user_id);
 create index if not exists idx_member_archive_conversation_id on member_archive(conversation_id);
 create index if not exists idx_archive_change_log_archive_type_archive_id on archive_change_log(archive_type, archive_id);

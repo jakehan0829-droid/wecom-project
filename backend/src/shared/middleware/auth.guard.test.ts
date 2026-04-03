@@ -14,7 +14,7 @@ jest.mock('../../infra/config/env.js', () => ({
   }
 }));
 
-const mockJwt = jwt as jest.Mocked<typeof jwt>;
+const mockJwt = jwt as any;
 const mockEnv = env as any;
 
 describe('Auth Guard Middleware', () => {
@@ -122,6 +122,7 @@ describe('Auth Guard Middleware', () => {
     it('should not allow dev- tokens in non-development environment', () => {
       mockEnv.nodeEnv = 'production';
       mockReq.headers.authorization = 'Bearer dev-test-token';
+      mockJwt.verify.mockImplementation(() => { throw new Error('invalid token'); });
 
       authGuard(mockReq, mockRes, mockNext);
 
@@ -140,6 +141,7 @@ describe('Auth Guard Middleware', () => {
     it('should not allow test-token-123 in non-development environment', () => {
       mockEnv.nodeEnv = 'production';
       mockReq.headers.authorization = 'Bearer test-token-123';
+      mockJwt.verify.mockImplementation(() => { throw new Error('invalid token'); });
 
       authGuard(mockReq, mockRes, mockNext);
 

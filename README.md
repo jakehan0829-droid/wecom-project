@@ -49,19 +49,18 @@
 ### 本地开发
 ```bash
 # 1. 克隆项目
-git clone <repository-url>
-cd wecom-project
+git clone https://github.com/your-org/wecom-chronic-disease.git
+cd wecom-chronic-disease
 
-# 2. 启动依赖服务
-docker-compose up -d postgres redis
+# 2. 一键初始化（复制 .env 文件 + 安装依赖）
+make setup
 
-# 3. 设置环境变量
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+# 3. 编辑配置文件，填写真实凭证
+# backend/.env — 数据库、JWT、企业微信、AI配置
+# frontend/.env.local — 前端API地址
 
-# 4. 安装依赖
-cd backend && npm install
-cd ../frontend && npm install
+# 4. 启动依赖服务
+make dev
 
 # 5. 启动后端服务
 cd backend && npm run dev
@@ -72,11 +71,14 @@ cd frontend && npm run dev
 
 ### 生产部署
 ```bash
+# 配置生产环境变量（必须设置所有变量，不能使用默认值）
+export DB_PASSWORD=your_strong_db_password
+export JWT_SECRET=$(openssl rand -base64 32)
+export WECOM_CORP_ID=your_corp_id
+# ... 其他变量参考 backend/.env.example
+
 # 使用Docker Compose部署
 docker-compose -f docker-compose.prod.yml up -d
-
-# 或使用CI/CD自动部署
-# 推送代码到main分支将自动触发构建和部署
 ```
 
 ## 项目结构

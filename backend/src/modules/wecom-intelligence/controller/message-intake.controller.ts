@@ -33,6 +33,8 @@ export async function createRealWecomMessageIntake(payload: Record<string, unkno
     linkedCustomerId: externalUserId,
     metadata: {
       source: 'real_wecom_event',
+      chatid: String(payload.chatid),  // 群聊回复时需要此字段
+      externalUserId: externalUserId,  // 私聊发送给外部联系人时需要此字段
       event: typeof payload.event === 'string' ? payload.event : undefined,
       changeType: typeof payload.changeType === 'string' ? payload.changeType : undefined,
       eventCategory: typeof payload.eventCategory === 'string' ? payload.eventCategory : undefined,

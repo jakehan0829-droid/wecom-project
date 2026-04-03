@@ -1,4 +1,4 @@
-import { createBloodPressureRecordService, createGlucoseRecordService, createWeightRecordService } from '../service/health-record.service.js';
+import { createBloodPressureRecordService, createGlucoseRecordService, createWeightRecordService, getPatientHealthRecordsService } from '../service/health-record.service.js';
 
 export async function createGlucoseRecord(patientId: string, payload: Record<string, unknown>) {
   return createGlucoseRecordService(patientId, payload);
@@ -10,4 +10,8 @@ export async function createBloodPressureRecord(patientId: string, payload: Reco
 
 export async function createWeightRecord(patientId: string, payload: Record<string, unknown>) {
   return createWeightRecordService(patientId, payload);
+}
+
+export async function getPatientHealthRecords(patientId: string, limit?: number) {
+  return getPatientHealthRecordsService(patientId, limit);
 }

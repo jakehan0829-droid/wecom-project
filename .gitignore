@@ -9,10 +9,13 @@ frontend/dist/
 # logs
 logs/
 *.log
-# env files
+# env files — never commit real credentials
 .env
 .env.local
 .env.*.local
+backend/.env.production
+frontend/.env.production
+*.env.production
 # OS / editor
 .DS_Store
 Thumbs.db

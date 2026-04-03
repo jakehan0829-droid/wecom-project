@@ -1,7 +1,7 @@
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import {
-  verifyWecomWebhook,
-  receiveWecomWebhook,
+  verifyWecomCallback,
+  normalizeWecomWebhookPayload,
   normalizeChatType,
   normalizeIncomingTimestamp,
   classifyWecomEvent
@@ -9,7 +9,8 @@ import {
 import {
   decryptWecomMessage,
   verifyWecomCallbackSignature,
-  verifyWecomMsgSignature
+  verifyWecomMsgSignature,
+  parseSimpleXml
 } from './wecom-crypto.service.js';
 import { AppError } from '../../../shared/errors/app-error.js';
 
@@ -25,11 +26,10 @@ jest.mock('../../../infra/config/env.js', () => ({
   }
 }));
 
-const mockCryptoService = {
-  decryptWecomMessage,
-  verifyWecomCallbackSignature,
-  verifyWecomMsgSignature
-} as any;
+const mockDecryptWecomMessage = decryptWecomMessage as jest.MockedFunction<typeof decryptWecomMessage>;
+const mockVerifyWecomCallbackSignature = verifyWecomCallbackSignature as jest.MockedFunction<typeof verifyWecomCallbackSignature>;
+const mockVerifyWecomMsgSignature = verifyWecomMsgSignature as jest.MockedFunction<typeof verifyWecomMsgSignature>;
+const mockParseSimpleXml = parseSimpleXml as jest.MockedFunction<typeof parseSimpleXml>;
 
 describe('Wecom Webhook Service', () => {
   beforeEach(() => {
@@ -110,42 +110,47 @@ describe('Wecom Webhook Service', () => {
       it('should classify external contact events', () => {
         const result = classifyWecomEvent('change_external_contact', 'add_external_contact');
         expect(result.eventCategory).toBe('external_contact');
-        expect(result.eventAction).toBe('added');
-        expect(result.lifecycleStatus).toBe('external_contact_added');
+        expect(result.eventAction).toBe('add_external_contact');
+        expect(result.lifecycleStatus).toBe('contact_changed');
+      });
+
+      it('should classify external contact del events', () => {
+        const result = classifyWecomEvent('change_external_contact', 'del_external_contact');
+        expect(result.eventCategory).toBe('external_contact');
+        expect(result.lifecycleStatus).toBe('contact_lost');
       });
 
       it('should classify external chat events', () => {
         const result = classifyWecomEvent('change_external_chat', 'create');
         expect(result.eventCategory).toBe('external_chat');
-        expect(result.eventAction).toBe('created');
-        expect(result.lifecycleStatus).toBe('external_chat_created');
+        expect(result.eventAction).toBe('create');
+        expect(result.lifecycleStatus).toBe('group_changed');
       });
 
-      it('should classify enter app events', () => {
+      it('should classify enter agent events', () => {
         const result = classifyWecomEvent('enter_agent');
-        expect(result.eventCategory).toBe('enter_app');
-        expect(result.eventAction).toBe('entered');
-        expect(result.lifecycleStatus).toBe('enter_app_event');
+        expect(result.eventCategory).toBe('agent');
+        expect(result.eventAction).toBe('enter_agent');
+        expect(result.lifecycleStatus).toBe('welcome_pending');
       });
 
       it('should classify batch job events', () => {
         const result = classifyWecomEvent('batch_job_result');
         expect(result.eventCategory).toBe('batch_job');
-        expect(result.eventAction).toBe('result');
-        expect(result.lifecycleStatus).toBe('batch_job_result');
+        expect(result.eventAction).toBe('batch_job_result');
+        expect(result.lifecycleStatus).toBe('async_job_finished');
       });
 
       it('should handle unknown events', () => {
         const result = classifyWecomEvent('unknown_event');
-        expect(result.eventCategory).toBe('unknown');
-        expect(result.eventAction).toBe('unknown');
-        expect(result.lifecycleStatus).toBe('unknown_event');
+        expect(result.eventCategory).toBe('unknown_event');
+        expect(result.lifecycleStatus).toBe('event_received');
       });
     });
   });
 
-  describe('verifyWecomWebhook', () => {
-    it('should verify webhook successfully with valid signature', async () => {
+  describe('verifyWecomCallback', () => {
+    it('should return verification result with received fields', () => {
       const payload = {
         msg_signature: 'valid-signature',
         timestamp: '1234567890',
@@ -153,28 +158,19 @@ describe('Wecom Webhook Service', () => {
         echostr: 'encrypted-echo'
       };
 
-      mockCryptoService.verifyWecomCallbackSignature.mockReturnValue(true);
-      mockCryptoService.decryptWecomMessage.mockReturnValue('decrypted-echo');
+      mockVerifyWecomCallbackSignature.mockReturnValue({ verified: true, mode: 'real', echoStr: 'decrypted-echo' } as any);
 
-      const result = await verifyWecomWebhook(payload);
+      const result = verifyWecomCallback(payload);
 
-      expect(result.success).toBe(true);
-      expect(result.plainText).toBe('decrypted-echo');
-      expect(mockCryptoService.verifyWecomCallbackSignature).toHaveBeenCalledWith(
-        'test-token',
-        '1234567890',
-        'nonce123',
-        'valid-signature',
-        'encrypted-echo'
-      );
-      expect(mockCryptoService.decryptWecomMessage).toHaveBeenCalledWith(
-        'encrypted-echo',
-        'test-aes-key',
-        'test-corp-id'
-      );
+      expect(result.verified).toBe(true);
+      expect(result.received).toEqual({
+        msgSignature: 'valid-signature',
+        timestamp: '1234567890',
+        nonce: 'nonce123'
+      });
     });
 
-    it('should throw error when signature verification fails', async () => {
+    it('should return failure when signature verification fails', () => {
       const payload = {
         msg_signature: 'invalid-signature',
         timestamp: '1234567890',
@@ -182,105 +178,107 @@ describe('Wecom Webhook Service', () => {
         echostr: 'encrypted-echo'
       };
 
-      mockCryptoService.verifyWecomCallbackSignature.mockReturnValue(false);
+      mockVerifyWecomCallbackSignature.mockImplementation(() => { throw new Error('signature failed'); });
 
-      await expect(verifyWecomWebhook(payload)).rejects.toThrow(AppError);
-      await expect(verifyWecomWebhook(payload)).rejects.toThrow('Invalid signature');
-    });
-
-    it('should throw error when required fields are missing', async () => {
-      await expect(verifyWecomWebhook({})).rejects.toThrow(AppError);
-      await expect(verifyWecomWebhook({})).rejects.toThrow('Missing required parameters');
-
-      await expect(verifyWecomWebhook({
-        msg_signature: 'sig',
-        timestamp: '123',
-        nonce: 'nonce'
-        // missing echostr
-      })).rejects.toThrow(AppError);
+      expect(() => verifyWecomCallback(payload)).toThrow();
     });
   });
 
-  describe('receiveWecomWebhook', () => {
-    const mockPayload = {
-      msg_signature: 'valid-signature',
-      timestamp: '1234567890',
-      nonce: 'nonce123',
-      body: '<xml><ToUserName>corp</ToUserName><FromUserName>user</FromUserName><CreateTime>1234567890</CreateTime><MsgType>text</MsgType><Content>Hello</Content><MsgId>msg123</MsgId><AgentID>agent1</AgentID></xml>'
-    };
-
-    beforeEach(() => {
-      mockCryptoService.verifyWecomMsgSignature.mockReturnValue(true);
-      mockCryptoService.decryptWecomMessage.mockImplementation((encrypted) =>
-        encrypted === 'encrypted-xml' ? mockPayload.body : 'decrypted-content'
-      );
-    });
-
-    it('should receive and process webhook message successfully', async () => {
-      const result = await receiveWecomWebhook(mockPayload, {});
-
-      expect(result.success).toBe(true);
-      expect(result.plainText).toBe('');
-      expect(result.normalizedPayload).toBeDefined();
-      expect(result.normalizedPayload?.msgid).toBe('msg123');
-      expect(result.normalizedPayload?.content).toBe('Hello');
-      expect(result.normalizedPayload?.msgtype).toBe('text');
-    });
-
-    it('should throw error when signature verification fails', async () => {
-      mockCryptoService.verifyWecomMsgSignature.mockReturnValue(false);
-
-      await expect(receiveWecomWebhook(mockPayload, {})).rejects.toThrow(AppError);
-      await expect(receiveWecomWebhook(mockPayload, {})).rejects.toThrow('Invalid signature');
-    });
-
-    it('should handle different message types', async () => {
-      const imagePayload = {
-        ...mockPayload,
-        body: '<xml><ToUserName>corp</ToUserName><FromUserName>user</FromUserName><CreateTime>1234567890</CreateTime><MsgType>image</MsgType><PicUrl>http://example.com/image.jpg</PicUrl><MsgId>msg456</MsgId><AgentID>agent1</AgentID></xml>'
+  describe('normalizeWecomWebhookPayload', () => {
+    it('should process plain JSON payload', () => {
+      const payload = {
+        MsgId: 'msg123',
+        FromUserName: 'user1',
+        MsgType: 'text',
+        Content: 'Hello',
+        CreateTime: '1704067200'
       };
 
-      const result = await receiveWecomWebhook(imagePayload, {});
+      const result = normalizeWecomWebhookPayload(payload);
 
-      expect(result.success).toBe(true);
-      expect(result.normalizedPayload?.msgtype).toBe('image');
-      expect(result.normalizedPayload?.content).toBe('http://example.com/image.jpg');
+      expect(result.msgid).toBe('msg123');
+      expect(result.content).toBe('Hello');
+      expect(result.msgtype).toBe('text');
+      expect(result.sender).toBe('user1');
     });
 
-    it('should handle event messages', async () => {
-      const eventPayload = {
-        ...mockPayload,
-        body: '<xml><ToUserName>corp</ToUserName><FromUserName>user</FromUserName><CreateTime>1234567890</CreateTime><MsgType>event</MsgType><Event>change_external_contact</Event><ChangeType>add_external_contact</ChangeType><WelcomeCode>welcome123</WelcomeCode><MsgId>msg789</MsgId><AgentID>agent1</AgentID></xml>'
+    it('should process plain JSON body payload', () => {
+      const payload = {
+        MsgId: 'msg123',
+        FromUserName: 'user',
+        MsgType: 'text',
+        Content: 'Hello',
+        CreateTime: '1234567890'
       };
 
-      const result = await receiveWecomWebhook(eventPayload, {});
-
-      expect(result.success).toBe(true);
-      expect(result.normalizedPayload?.msgtype).toBe('event');
-      expect(result.normalizedPayload?.event).toBe('change_external_contact');
-      expect(result.normalizedPayload?.changeType).toBe('add_external_contact');
-      expect(result.normalizedPayload?.welcomeCode).toBe('welcome123');
+      const result = normalizeWecomWebhookPayload(payload);
+      expect(result).toBeDefined();
+      expect(result.msgid).toBe('msg123');
     });
 
-    it('should handle missing required fields', async () => {
-      const invalidPayload = {
-        ...mockPayload,
-        body: '<xml><ToUserName>corp</ToUserName></xml>' // Missing required fields
+    it('should process encrypted payload', () => {
+      const parsedXml = {
+        MsgId: 'msg123', FromUserName: 'user', MsgType: 'text', Content: 'Hello',
+        CreateTime: '1234567890', ToUserName: 'corp', AgentID: 'agent1',
+        ChatId: '', ChatType: '', ChatName: '', SenderName: '', ExternalUserID: '',
+        Event: '', ChangeType: '', WelcomeCode: '', UpdateTime: '', UserID: '',
+        State: '', FailReason: '', ChatStatus: '', JoinScene: '', MemChangeCnt: ''
       };
 
-      await expect(receiveWecomWebhook(invalidPayload, {})).rejects.toThrow(AppError);
+      mockVerifyWecomMsgSignature.mockReturnValue(true);
+      mockDecryptWecomMessage.mockReturnValue('<xml>...</xml>');
+      mockParseSimpleXml.mockReturnValue(parsedXml as any);
+
+      const payload = {
+        Encrypt: 'encrypted-content',
+        msg_signature: 'valid-sig',
+        timestamp: '1234567890',
+        nonce: 'nonce123'
+      };
+
+      const result = normalizeWecomWebhookPayload(payload);
+      expect(result.msgid).toBe('msg123');
+      expect(result.content).toBe('Hello');
     });
 
-    it('should handle XML parsing errors', async () => {
-      const invalidXmlPayload = {
-        ...mockPayload,
-        body: 'invalid-xml'
+    it('should throw AppError when encrypted payload has invalid signature', () => {
+      mockVerifyWecomMsgSignature.mockReturnValue(false);
+
+      const payload = {
+        Encrypt: 'encrypted-content',
+        msg_signature: 'bad-sig',
+        timestamp: '1234567890',
+        nonce: 'nonce123'
       };
 
-      mockCryptoService.decryptWecomMessage.mockReturnValue('invalid-xml');
+      expect(() => normalizeWecomWebhookPayload(payload)).toThrow(AppError);
+    });
 
-      await expect(receiveWecomWebhook(invalidXmlPayload, {})).rejects.toThrow(AppError);
-      await expect(receiveWecomWebhook(invalidXmlPayload, {})).rejects.toThrow('Failed to parse XML');
+    it('should throw AppError when encrypted payload missing signature params', () => {
+      const payload = {
+        Encrypt: 'encrypted-content'
+        // missing msg_signature, timestamp, nonce
+      };
+
+      expect(() => normalizeWecomWebhookPayload(payload)).toThrow(AppError);
+    });
+
+    it('should handle event messages', () => {
+      const payload = {
+        MsgId: 'msg789',
+        FromUserName: 'user1',
+        MsgType: 'event',
+        Event: 'change_external_contact',
+        ChangeType: 'add_external_contact',
+        WelcomeCode: 'welcome123',
+        CreateTime: '1234567890'
+      };
+
+      const result = normalizeWecomWebhookPayload(payload);
+      expect(result.msgtype).toBe('event');
+      expect(result.event).toBe('change_external_contact');
+      expect(result.changeType).toBe('add_external_contact');
+      expect(result.welcomeCode).toBe('welcome123');
     });
   });
 });

@@ -345,20 +345,37 @@ export async function getMessageBusinessProcessingResult(payload: {
   }
 
   try {
-    // TODO: 从数据库查询业务处理结果
-    // 目前先返回模拟数据
-    console.log(`[Business Routing] Would get processing result for message ${payload.messageId}`);
+    const result = await db.query(
+      `select message_id as "messageId", analysis_status as "processingStatus", sender_role as "businessHandler", created_at as "lastProcessedAt"
+       from wecom_messages
+       where message_id = $1
+       limit 1`,
+      [payload.messageId]
+    );
 
     const duration = Date.now() - startTime;
-    console.log(`[Business Routing] Processing result retrieval simulated in ${duration}ms`);
+    console.log(`[Business Routing] Processing result retrieved in ${duration}ms`);
 
+    if (!result.rows[0]) {
+      return {
+        messageId: payload.messageId,
+        processed: false,
+        processingStatus: 'not_processed',
+        lastProcessedAt: null,
+        businessHandler: null,
+        archiveUpdated: false,
+        archiveType: null
+      };
+    }
+
+    const row = result.rows[0];
     return {
-      messageId: payload.messageId,
-      processed: false,
-      processingStatus: 'not_processed',
-      lastProcessedAt: null,
-      businessHandler: null,
-      archiveUpdated: false,
+      messageId: row.messageId,
+      processed: row.processingStatus !== 'pending',
+      processingStatus: row.processingStatus,
+      lastProcessedAt: row.lastProcessedAt,
+      businessHandler: row.businessHandler,
+      archiveUpdated: row.processingStatus === 'completed',
       archiveType: null
     };
   } catch (error) {

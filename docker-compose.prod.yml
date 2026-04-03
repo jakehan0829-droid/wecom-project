@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: chronic_disease
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -52,19 +52,19 @@ services:
       DB_PORT: 5432
       DB_NAME: chronic_disease
       DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}  # 从环境变量读取，默认postgres
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-replace_me_with_secure_random_string_in_production}
-      WECOM_CORP_ID: ${WECOM_CORP_ID:-wwopenclawdemo001}
-      WECOM_AGENT_ID: ${WECOM_AGENT_ID:-1000002}
-      WECOM_SECRET: ${WECOM_SECRET:-demo_secret_123456}
-      WECOM_TOKEN: ${WECOM_TOKEN:-openclaw-demo-token}
-      WECOM_AES_KEY: ${WECOM_AES_KEY:-rs7wJpwNlXFnPLYHWo2q/FzywfBMCK2d0I70Mcvi5mw=}
-      AI_PROVIDER: ${AI_PROVIDER:-openai-codex}
-      AI_MODEL: ${AI_MODEL:-gpt-5.4}
-      AI_API_KEY: ${AI_API_KEY:-sk-35136ffb95857141c5c2e424b1f4682cc7871bbf448a7af1c0295e5d2fe91735}
-      AI_BASE_URL: ${AI_BASE_URL:-https://www.open1.codes/v1}
+      JWT_SECRET: ${JWT_SECRET}
+      WECOM_CORP_ID: ${WECOM_CORP_ID}
+      WECOM_AGENT_ID: ${WECOM_AGENT_ID}
+      WECOM_SECRET: ${WECOM_SECRET}
+      WECOM_TOKEN: ${WECOM_TOKEN}
+      WECOM_AES_KEY: ${WECOM_AES_KEY}
+      AI_PROVIDER: ${AI_PROVIDER}
+      AI_MODEL: ${AI_MODEL}
+      AI_API_KEY: ${AI_API_KEY}
+      AI_BASE_URL: ${AI_BASE_URL}
     env_file:
       - ../backend/.env.production
     ports:

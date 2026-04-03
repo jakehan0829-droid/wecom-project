@@ -216,6 +216,8 @@ function normalizeDecryptedXmlPayload(xml: string): NormalizedWecomWebhookPayloa
   };
 }
 
+export { normalizeChatType, normalizeIncomingTimestamp, classifyWecomEvent };
+
 export function verifyWecomCallback(payload: VerifyUrlPayload) {
   const result = verifyWecomCallbackSignature(payload);
   return {

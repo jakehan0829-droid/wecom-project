@@ -83,7 +83,7 @@ class SentryMonitoringClient implements MonitoringClient {
 
       this.sentry = Sentry;
     } catch (error) {
-      console.warn('Sentry not available, falling back to noop:', error.message);
+      console.warn('Sentry not available, falling back to noop:', (error as Error).message);
       return new NoopMonitoringClient() as any;
     }
   }

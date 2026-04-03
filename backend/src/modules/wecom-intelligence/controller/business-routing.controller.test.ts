@@ -198,6 +198,8 @@ describe('Business Routing Controller', () => {
 
   describe('getMessageBusinessProcessingResult', () => {
     it('should return processing result', async () => {
+      mockDb.query.mockResolvedValue({ rows: [] } as any);
+
       const result = await getMessageBusinessProcessingResult({
         messageId: 'test-msg'
       });
@@ -205,7 +207,6 @@ describe('Business Routing Controller', () => {
       expect(result.messageId).toBe('test-msg');
       expect(result.processed).toBe(false);
       expect(result.processingStatus).toBe('not_processed');
-      // This is currently a mock implementation
     });
   });
 });

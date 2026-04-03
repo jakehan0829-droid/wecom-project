@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { getMonitor, recordApiResponseTime, captureError } from './error-monitor.service.js';
+import { getMonitor, recordApiResponseTime, recordDbQueryTime, captureError } from './error-monitor.service.js';
 
 /**
  * 请求监控中间件
  * 跟踪API请求性能、错误和用户活动
  */
-export function monitoringMiddleware(req: Request, res: Response, next: NextFunction) {
+export function monitoringMiddleware(req: Request & { user?: any }, res: Response, next: NextFunction) {
   const startTime = Date.now();
   const transaction = getMonitor().startTransaction(req.path, req.method);
 
@@ -83,7 +83,7 @@ export function monitoringMiddleware(req: Request, res: Response, next: NextFunc
  */
 export function errorMonitoringMiddleware(
   error: Error,
-  req: Request,
+  req: Request & { user?: any },
   res: Response,
   next: NextFunction
 ) {
@@ -112,7 +112,7 @@ export function errorMonitoringMiddleware(
  * 监控慢请求并报警
  */
 export function performanceMonitoringMiddleware(
-  req: Request,
+  req: Request & { user?: any },
   res: Response,
   next: NextFunction
 ) {

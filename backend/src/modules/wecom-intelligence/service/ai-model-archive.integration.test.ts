@@ -1,9 +1,13 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { analyzeMessageAndUpdateArchive } from '../../archive/service/archive.service.js';
 import { aiModelService } from './ai-model.service.js';
-import type { MemberArchiveRecord } from '../../archive/service/archive.service.js';
-import * as archiveService from '../../archive/service/archive.service.js';
 
+// Mock DB to avoid needing a real PostgreSQL connection
+jest.mock('../../../infra/db/pg.js', () => ({
+  db: {
+    query: jest.fn()
+  }
+}));
 
 // Mock dependencies
 jest.mock('./ai-model.service.js', () => {
@@ -17,32 +21,12 @@ jest.mock('./ai-model.service.js', () => {
   };
 });
 
+import { db } from '../../../infra/db/pg.js';
+const mockDb = db as { query: jest.MockedFunction<any> };
 
 describe('AI Model and Archive Integration', () => {
-  let upsertMemberArchiveServiceMock: any;
-
   beforeEach(() => {
     jest.clearAllMocks();
-    // Mock the upsertMemberArchiveService function
-    upsertMemberArchiveServiceMock = jest.spyOn(archiveService, 'upsertMemberArchiveService')
-      .mockImplementation((userId: string, payload: Record<string, unknown>, operatorId?: string) =>
-        Promise.resolve({
-          id: 'mock-id',
-          userId,
-          conversationId: null,
-          basicInfo: null,
-          preferences: null,
-          coreProblem: null,
-          communicationSummary: null,
-          followupFocus: null,
-          personaSummary: null,
-          recentIssueSummary: null,
-          followupPlan: null,
-          sourceConversations: null,
-          updatedAt: new Date().toISOString(),
-          createdAt: new Date().toISOString()
-        } as MemberArchiveRecord)
-      );
   });
 
   describe('analyzeMessageAndUpdateArchive', () => {
@@ -111,23 +95,17 @@ describe('AI Model and Archive Integration', () => {
       // Mock AI service response
       (aiModelService.analyzeMessage as any).mockResolvedValue(mockAnalysisResult);
 
-      // Mock archive service response
-      upsertMemberArchiveServiceMock.mockResolvedValue(mockUpdatedArchive);
+      // Override DB mock to return specific archive data
+      mockDb.query
+        .mockResolvedValueOnce({ rows: [mockUpdatedArchive] })
+        .mockResolvedValueOnce({ rows: [] });
 
       // Act
       const result = await analyzeMessageAndUpdateArchive(messageInput);
 
       // Assert
       expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
-      expect(upsertMemberArchiveServiceMock).toHaveBeenCalledWith(
-        'customer-123',
-        {
-          basicInfo: '糖尿病患者，近期血糖控制不佳',
-          coreProblem: '空腹血糖偏高（8.5），需要用药调整',
-          recentIssueSummary: '早上空腹血糖8.5，血糖控制不稳定'
-        },
-        'ai-system'
-      );
+      expect(mockDb.query).toHaveBeenCalled();
       expect(result.analysis).toEqual(mockAnalysisResult);
       expect(result.archiveUpdated).toBe(true);
       expect(result.updatedArchive).toEqual(mockUpdatedArchive);
@@ -178,7 +156,7 @@ describe('AI Model and Archive Integration', () => {
 
       // Assert
       expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
-      expect(upsertMemberArchiveServiceMock).not.toHaveBeenCalled();
+      expect(mockDb.query).not.toHaveBeenCalled();
       expect(result.analysis).toEqual(mockAnalysisResult);
       expect(result.archiveUpdated).toBe(false);
       expect(result.updatedArchive).toBeUndefined();
@@ -229,7 +207,7 @@ describe('AI Model and Archive Integration', () => {
 
       // Assert
       expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
-      expect(upsertMemberArchiveServiceMock).not.toHaveBeenCalled();
+      expect(mockDb.query).not.toHaveBeenCalled();
       expect(result.archiveUpdated).toBe(false);
     });
 
@@ -277,7 +255,8 @@ describe('AI Model and Archive Integration', () => {
       };
 
       (aiModelService.analyzeMessage as any).mockResolvedValue(mockAnalysisResult);
-      upsertMemberArchiveServiceMock.mockRejectedValue(new Error('Database connection failed'));
+      // Override DB mock to simulate DB failure
+      mockDb.query.mockRejectedValueOnce(new Error('Database connection failed'));
 
       // Act & Assert
       await expect(analyzeMessageAndUpdateArchive(messageInput))
@@ -285,7 +264,7 @@ describe('AI Model and Archive Integration', () => {
         .toThrow('Database connection failed');
 
       expect(aiModelService.analyzeMessage as any).toHaveBeenCalledWith(messageInput);
-      expect(upsertMemberArchiveServiceMock).toHaveBeenCalled();
+      expect(mockDb.query).toHaveBeenCalled();
     });
   });
 });

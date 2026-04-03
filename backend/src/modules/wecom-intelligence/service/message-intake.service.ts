@@ -73,9 +73,8 @@ export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
   );
 
   // 异步触发AI分析（不阻塞主流程）
-  if (process.env.ENABLE_AI_ANALYSIS === 'true' && normalizedWithPatient.contentType === 'text') {
-    // @ts-ignore
-    this.triggerMessageAnalysis(normalizedWithPatient.messageId).catch((error: any) => {
+  if (process.env.ENABLE_AI_ANALYSIS !== 'false' && normalizedWithPatient.contentType === 'text') {
+    triggerMessageAnalysis(normalizedWithPatient.messageId).catch((error: unknown) => {
       console.error(`Failed to trigger AI analysis for message ${normalizedWithPatient.messageId}:`, error);
     });
   }

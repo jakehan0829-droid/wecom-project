@@ -6,8 +6,8 @@ WORKDIR /app
 # 复制package.json和package-lock.json
 COPY package*.json ./
 
-# 安装依赖
-RUN npm ci --only=production
+# 安装依赖（构建阶段需要 devDependencies 来编译 TypeScript）
+RUN npm ci
 
 # 复制源代码
 COPY . .
@@ -26,7 +26,6 @@ RUN npm ci --only=production
 
 # 从构建阶段复制构建结果
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/infra/config/env.example.js ./src/infra/config/env.example.js
 
 # 创建非root用户
 RUN addgroup -g 1001 -S nodejs

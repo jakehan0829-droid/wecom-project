@@ -1959,7 +1959,7 @@ function ConversationDetailPage({
                   <div className="quick-feedback-grid">
                     <div style={{ gridColumn: 'span 2' }}>
                       <div className="info-box" style={{ marginBottom: '20px' }}>
-                        <strong>当前会话:</strong> {selectedConversationId}
+                        <strong>当前会话:</strong> {conversationId}
                         <br />
                         <strong>消息数量:</strong> {messages.length}条
                       </div>
@@ -2268,7 +2268,7 @@ export default function App() {
     const defaultConversationId = 'wecom:private:HanCong';
     const conversations = data?.tables?.byConversation || [];
     if (conversations.length > 0 && selectedConversationId === defaultConversationId) {
-      const firstConversation = conversations[0];
+      const firstConversation = conversations[0] as any;
       const firstConversationId = String(firstConversation.conversationId || firstConversation.customerId || '');
       if (firstConversationId && firstConversationId !== defaultConversationId) {
         setSelectedConversationId(firstConversationId);

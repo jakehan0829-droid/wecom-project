@@ -6,9 +6,12 @@ import {
   upsertMemberArchiveService,
   upsertPatientProfileService,
   getPatientProfileService,
+  getArchiveForAIContext,
   type PatientProfileRecord
 } from '../../archive/service/archive.service.js';
 import { lookupCustomerMapping, type CustomerMappingLookupResult } from './patient-mapping.service.js';
+import { sendWecomGroupMessageService } from '../../enrollment/service/wecom-api-client.service.js';
+import { sendWecomTextMessageService } from '../../enrollment/service/wecom-message-sender.service.js';
 
 // AI模型配置
 interface AIModelConfig {
@@ -63,6 +66,11 @@ export interface MessageAnalysisResult {
     memberArchiveUpdates: Record<string, string>;
     patientArchiveUpdates: Record<string, string>;
   };
+
+  // AI生成的回复文本（直接发给用户）
+  replyText: string | null;
+  // 是否需要转给真人助理
+  needsHumanHandoff: boolean;
 
   confidence: number;
   analysisTimestamp: string;
@@ -187,6 +195,9 @@ class AIModelService {
       patientArchiveUpdates: isCustomer ? this.mapToPatientArchive(extraction) : {}
     };
 
+    // mock模式下生成示例回复
+    const mockReply = isCustomer ? this.generateMockReply(currentContent, understanding) : null;
+
     return {
       messageId: input.messageId,
       conversationId: input.conversationId,
@@ -194,9 +205,23 @@ class AIModelService {
       understanding,
       extraction,
       archiveUpdates,
+      replyText: mockReply,
+      needsHumanHandoff: false,
       confidence: 0.7,
       analysisTimestamp: now
     };
+  }
+
+  // 生成mock回复（开发测试用）
+  private generateMockReply(content: string, understanding: MessageAnalysisResult['understanding']): string | null {
+    if (!content.trim()) return null;
+    if (understanding.risks.length > 0) {
+      return `您好！您提到的情况需要关注，建议您及时就医或联系医生进行评估。如有紧急情况，请立即拨打急救电话。`;
+    }
+    if (understanding.userQuestion) {
+      return `您好！感谢您的提问。关于您的问题，建议您保持健康的生活方式，如有具体疑问欢迎继续交流～`;
+    }
+    return `收到您的消息，感谢您的分享！如有健康方面的问题随时可以告诉我。`;
   }
 
   // OpenAI消息分析
@@ -215,8 +240,9 @@ class AIModelService {
       timestamp: input.timestamp
     }];
 
-    // 构建提示词
-    const prompt = this.buildAnalysisPrompt(input, allMessages);
+    // 构建提示词（私聊时注入档案上下文）
+    const archiveContext = (input as any)._archiveContext as string | undefined;
+    const prompt = this.buildAnalysisPrompt(input, allMessages, archiveContext);
 
     try {
       const response = await this.openaiClient.chat.completions.create({
@@ -224,8 +250,14 @@ class AIModelService {
         messages: [
           {
             role: 'system',
-            content: `你是一个专业的医疗健康助手，负责分析患者与医生之间的对话消息。
-你的任务是分析患者消息，提取关键信息，理解患者需求，并生成结构化的分析结果。
+            content: `你是"健康助手"，在企业微信群和私信中为慢病患者提供健康支持。
+你的职责：
+- 提供健康指导、科普知识、情绪疏导，引导患者养成良好生活习惯
+- 发现患者新需求，提炼关键信息沉淀到档案
+- 注意：你只提供健康建议，不提供医疗诊断或处方
+- 群聊中严禁透露任何患者个人隐私信息，只能引用该用户在本群中亲自说过的内容
+- 如遇到无法回答的运营/排班/医生信息等问题，在replyText中@真人助理
+
 请以JSON格式返回分析结果，严格按照指定的结构。`
           },
           {
@@ -233,7 +265,7 @@ class AIModelService {
             content: prompt
           }
         ],
-        temperature: 0.1,
+        temperature: 0.3,
         response_format: { type: 'json_object' }
       });
 
@@ -256,17 +288,25 @@ class AIModelService {
     }
   }
 
-  // 构建分析提示词
-  private buildAnalysisPrompt(input: MessageAnalysisInput, allMessages: Array<{senderRole: string, content: string, timestamp: string}>): string {
+  // 构建分析提示词（支持档案上下文注入）
+  private buildAnalysisPrompt(
+    input: MessageAnalysisInput,
+    allMessages: Array<{senderRole: string, content: string, timestamp: string}>,
+    archiveContext?: string
+  ): string {
     const messageContext = allMessages.map(msg =>
       `[${msg.timestamp}] ${msg.senderRole}: ${msg.content}`
     ).join('\n');
+
+    const archiveSection = archiveContext
+      ? `\n用户健康背景（仅供参考，私聊可用，群聊中禁止透露）：\n${archiveContext}\n`
+      : '';
 
     return `请分析以下医疗健康对话消息，并返回JSON格式的分析结果：
 
 对话上下文：
 ${messageContext}
-
+${archiveSection}
 当前分析的消息ID：${input.messageId}
 发送者角色：${input.senderRole}
 发送者ID：${input.senderId}
@@ -292,7 +332,15 @@ ${messageContext}
    - memberArchiveUpdates：成员档案更新建议（键值对对象）
    - patientArchiveUpdates：患者档案更新建议（键值对对象）
 
-4. confidence：分析置信度（0.0-1.0之间的浮点数）
+4. replyText：给用户的回复文本（字符串，如果不需要回复则为null）
+   - 群聊场景：只能引用用户在本群中亲自说过的内容，不能透露档案隐私
+   - 私聊场景：可以结合用户健康背景给出个性化建议
+   - 遇到无法回答的运营/排班/医生信息问题时，回复中包含"@助理"请求真人协助
+
+5. needsHumanHandoff：是否需要转给真人助理（布尔值）
+   - 遇到紧急医疗情况、投诉、或AI无法处理的问题时设为true
+
+6. confidence：分析置信度（0.0-1.0之间的浮点数）
 
 请确保返回纯JSON，不要包含其他文本。`;
   }
@@ -327,6 +375,8 @@ ${messageContext}
         memberArchiveUpdates: {},
         patientArchiveUpdates: {}
       },
+      replyText: null,
+      needsHumanHandoff: false,
       confidence: 0.7,
       analysisTimestamp: timestamp
     };
@@ -368,6 +418,10 @@ ${messageContext}
         defaultResult.confidence = Math.max(0.0, Math.min(1.0, openaiResponse.confidence));
       }
 
+      // 映射replyText和needsHumanHandoff
+      defaultResult.replyText = typeof openaiResponse.replyText === 'string' ? openaiResponse.replyText : null;
+      defaultResult.needsHumanHandoff = openaiResponse.needsHumanHandoff === true;
+
       return defaultResult;
     } catch (error) {
       console.error('Error mapping OpenAI response:', error);
@@ -377,20 +431,11 @@ ${messageContext}
 
   // 分析档案并生成完善建议
   async analyzeArchive(input: ArchiveAnalysisInput): Promise<ArchiveAnalysisResult> {
-    console.log('[AI Debug] analyzeArchive called, provider:', this.config.provider);
-    console.log('[AI Debug] this:', Object.keys(this));
-    console.log('[AI Debug] openaiAnalyzeArchive exists:', typeof this.openaiAnalyzeArchive);
-
     if (this.config.provider === 'mock') {
       return this.mockAnalyzeArchive(input);
     }
 
     if (this.config.provider === 'openai') {
-      if (!this.openaiAnalyzeArchive) {
-        console.error('[AI Debug] openaiAnalyzeArchive method not found');
-        console.error('[AI Debug] Available methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this)));
-        throw new Error('AI service method not available');
-      }
       return await this.openaiAnalyzeArchive(input);
     }
 
@@ -1128,7 +1173,9 @@ ${conversationContext}
   private async getMessageDetails(messageId: string) {
     const result = await db.query(
       `select id, message_id, conversation_id, sender_id, sender_role,
-              content_text, sent_at, linked_customer_id
+              content_text, sent_at, linked_customer_id, chat_type,
+              (metadata_json->>'chatid')::text as chatid,
+              (metadata_json->>'externalUserId')::text as external_user_id
          from wecom_messages
         where message_id = $1
         limit 1`,
@@ -1370,6 +1417,19 @@ ${conversationContext}
       console.error('[Group Customer Service] Failed to save analysis result:', error);
     }
 
+    // 发送AI回复到群聊（群聊用chatId，不用senderId）
+    if (analysis.replyText && messageInput.senderRole === 'customer') {
+      const chatId = (messageInput as any)._chatId as string | undefined;
+      if (chatId) {
+        try {
+          await sendWecomGroupMessageService({ chatId, content: analysis.replyText });
+          console.log(`[Group Customer Service] Sent reply to group ${chatId}`);
+        } catch (error) {
+          console.error('[Group Customer Service] Failed to send group reply:', error);
+        }
+      }
+    }
+
     return { analysis, archiveUpdated, archiveType, targetId };
   }
 
@@ -1381,7 +1441,13 @@ ${conversationContext}
     targetId: string; // user_id 或 patient_id
     patientId: string | null;
   }> {
-    const analysis = await this.analyzeMessage(messageInput);
+    // 私聊前先加载档案上下文注入AI
+    const archiveContext = await getArchiveForAIContext(messageInput.senderId);
+    const enrichedInput = archiveContext
+      ? { ...messageInput, _archiveContext: archiveContext }
+      : messageInput;
+
+    const analysis = await this.analyzeMessage(enrichedInput);
     let archiveUpdated = false;
     let archiveType: 'member' | 'patient' = 'member';
     let targetId = messageInput.senderId;
@@ -1479,6 +1545,23 @@ ${conversationContext}
       console.error('[Medical Assistant] Failed to save analysis result:', error);
     }
 
+    // 发送AI回复（外部联系人用externalUserId，内部员工用senderId）
+    if (analysis.replyText && messageInput.senderRole === 'customer') {
+      try {
+        const externalUserId = (messageInput as any)._externalUserId as string | undefined;
+        const receiverType = externalUserId ? 'external_user' : 'wecom_user';
+        const receiverId = externalUserId || messageInput.senderId;
+        await sendWecomTextMessageService({
+          receiverType,
+          receiverId,
+          message: analysis.replyText
+        });
+        console.log(`[Medical Assistant] Sent reply to ${receiverType} ${receiverId}`);
+      } catch (error) {
+        console.error('[Medical Assistant] Failed to send private reply:', error);
+      }
+    }
+
     return { analysis, archiveUpdated, archiveType, targetId, patientId };
   }
 
@@ -1532,14 +1615,20 @@ ${conversationContext}
       // 根据聊天类型路由到不同的业务处理
       if (message.chat_type === 'group') {
         businessHandler = 'group-customer-service';
-        const processingResult = await this.processGroupMessageForCustomerService(analysisInput);
+        // 群聊时把chatId附加到input，供发送回复使用
+        const groupInput = { ...analysisInput, _chatId: message.chatid || message.conversation_id };
+        const processingResult = await this.processGroupMessageForCustomerService(groupInput);
         result = processingResult.analysis;
         archiveUpdated = processingResult.archiveUpdated;
         archiveType = processingResult.archiveType;
         targetId = processingResult.targetId;
       } else if (message.chat_type === 'private') {
         businessHandler = 'medical-assistant';
-        const processingResult = await this.processPrivateMessageForMedicalAssistant(analysisInput);
+        // 私聊时把externalUserId附加到input，外部联系人需要用此ID发消息
+        const privateInput = message.external_user_id
+          ? { ...analysisInput, _externalUserId: message.external_user_id }
+          : analysisInput;
+        const processingResult = await this.processPrivateMessageForMedicalAssistant(privateInput);
         result = processingResult.analysis;
         archiveUpdated = processingResult.archiveUpdated;
         archiveType = processingResult.archiveType;

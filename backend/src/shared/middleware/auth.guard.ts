@@ -11,6 +11,9 @@ export function authGuard(req: Request, res: Response, next: NextFunction) {
   }
 
   const token = authHeader.replace('Bearer ', '');
+  if (!token) {
+    return fail(res, 401, ERROR_CODES.UNAUTHORIZED, 'missing bearer token');
+  }
 
   // 开发环境：允许特定的测试token通过
   if (env.nodeEnv === 'development') {

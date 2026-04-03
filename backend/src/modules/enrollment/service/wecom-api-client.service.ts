@@ -21,6 +21,11 @@ type WecomSendMessageInput = {
   content: string;
 };
 
+type WecomSendGroupMessageInput = {
+  chatId: string;
+  content: string;
+};
+
 let accessTokenCache: WecomAccessTokenCache | null = null;
 
 function ensureWecomCoreConfig() {
@@ -125,6 +130,47 @@ export async function sendWecomAppMessageService(input: WecomSendMessageInput): 
     data: {
       msgId: json.msgid
     },
+    requestBody: body
+  };
+}
+
+// 发送消息到企业微信客户群（appchat接口）
+export async function sendWecomGroupMessageService(input: WecomSendGroupMessageInput): Promise<WecomApiResult<{ msgId?: string }>> {
+  ensureWecomCoreConfig();
+
+  const body: Record<string, unknown> = {
+    chatid: input.chatId,
+    msgtype: 'text',
+    text: {
+      content: input.content
+    },
+    safe: 0
+  };
+
+  const accessToken = await getWecomAccessTokenService(false);
+  const url = new URL('https://qyapi.weixin.qq.com/cgi-bin/appchat/send');
+  url.searchParams.set('access_token', accessToken);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  const json = await parseWecomJson<{ errcode: number; errmsg: string; msgid?: string }>(response);
+
+  if (!response.ok || json.errcode !== 0) {
+    return {
+      ok: false,
+      errorCode: json.errcode,
+      errorMessage: json.errmsg,
+      requestBody: body
+    };
+  }
+
+  return {
+    ok: true,
+    data: { msgId: json.msgid },
     requestBody: body
   };
 }
