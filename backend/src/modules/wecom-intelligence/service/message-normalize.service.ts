@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { WecomMessageCategory, WecomSenderRole } from './wecom-automation.types.js';
 
 export type WecomMessageIntakeInput = {
   messageId?: string;
@@ -7,12 +8,14 @@ export type WecomMessageIntakeInput = {
   conversationName?: string;
   senderId: string;
   senderName?: string;
-  senderRole?: string;
+  senderRole?: WecomSenderRole;
+  senderRoleReason?: string;
   contentType?: string;
   contentRaw?: string;
   contentText?: string;
   sentAt: string;
   linkedCustomerId?: string;
+  messageCategory?: WecomMessageCategory;
   metadata?: Record<string, unknown>;
 };
 
@@ -24,12 +27,14 @@ export type NormalizedWecomMessage = {
   conversationName?: string;
   senderId: string;
   senderName?: string;
-  senderRole: string;
+  senderRole: WecomSenderRole;
+  senderRoleReason?: string;
   contentType: string;
   contentRaw: string;
   contentText: string;
   sentAt: string;
   linkedCustomerId?: string;
+  messageCategory: WecomMessageCategory;
   metadata: Record<string, unknown>;
 };
 
@@ -47,11 +52,13 @@ export function normalizeWecomMessage(input: WecomMessageIntakeInput): Normalize
     senderId: input.senderId,
     senderName: input.senderName,
     senderRole: input.senderRole || 'unknown',
+    senderRoleReason: input.senderRoleReason,
     contentType: input.contentType || 'text',
     contentRaw: input.contentRaw || input.contentText || '',
     contentText: input.contentText || input.contentRaw || '',
     sentAt: input.sentAt,
     linkedCustomerId: input.linkedCustomerId,
+    messageCategory: input.messageCategory || 'unknown',
     metadata: input.metadata || {}
   };
 }

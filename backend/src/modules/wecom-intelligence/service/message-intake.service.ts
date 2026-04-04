@@ -1,13 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../../../infra/db/pg.js';
 import { normalizeWecomMessage, type WecomMessageIntakeInput } from './message-normalize.service.js';
-import { assignConversationPrimaryCustomer, upsertConversation } from './conversation.service.js';
+import { assignConversationPrimaryCustomer, upsertConversation, upsertConversationParticipant } from './conversation.service.js';
 import { lookupCustomerMapping } from './patient-mapping.service.js';
-import { aiModelService } from './ai-model.service.js';
+import type { WecomSenderRole } from './wecom-automation.types.js';
 
 function isWecomLocalBypassEnabled() {
   return process.env.WECOM_WEBHOOK_LOCAL_BYPASS_DB === '1';
 }
+
+export type MessageIntakeResult = {
+  messageId: string;
+  conversationId: string;
+  linkedCustomerId: string | null;
+  patientMapping: Record<string, unknown> | null;
+  customerLookup: Record<string, unknown> | null;
+  senderRole: WecomSenderRole;
+  messageCategory: string;
+};
 
 export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
   const normalized = normalizeWecomMessage(input);
@@ -19,6 +29,8 @@ export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
       linkedCustomerId: normalized.linkedCustomerId || null,
       patientMapping: null,
       customerLookup: null,
+      senderRole: normalized.senderRole,
+      messageCategory: normalized.messageCategory,
       bypassed: true,
       bypassReason: 'WECOM_WEBHOOK_LOCAL_BYPASS_DB=1'
     };
@@ -39,6 +51,7 @@ export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
   };
 
   await upsertConversation(normalizedWithPatient);
+  await upsertConversationParticipant(normalizedWithPatient);
 
   if (patientMapping?.patientId) {
     await assignConversationPrimaryCustomer(normalizedWithPatient.conversationId, patientMapping.patientId);
@@ -72,36 +85,15 @@ export async function intakeWecomMessage(input: WecomMessageIntakeInput) {
     ]
   );
 
-  // 异步触发AI分析（不阻塞主流程）
-  if (process.env.ENABLE_AI_ANALYSIS !== 'false' && normalizedWithPatient.contentType === 'text') {
-    triggerMessageAnalysis(normalizedWithPatient.messageId).catch((error: unknown) => {
-      console.error(`Failed to trigger AI analysis for message ${normalizedWithPatient.messageId}:`, error);
-    });
-  }
-
-  return {
+  const result: MessageIntakeResult = {
     messageId: normalizedWithPatient.messageId,
     conversationId: normalizedWithPatient.conversationId,
     linkedCustomerId: normalizedWithPatient.linkedCustomerId || null,
     patientMapping,
-    customerLookup: mappingLookup
+    customerLookup: mappingLookup,
+    senderRole: normalizedWithPatient.senderRole,
+    messageCategory: normalizedWithPatient.messageCategory
   };
-}
 
-// 触发消息分析的辅助方法
-async function triggerMessageAnalysis(messageId: string) {
-  try {
-    // 延迟一下，确保消息已写入数据库
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const result = await aiModelService.analyzeMessageAndUpdateArchives(messageId);
-
-    if (result.success) {
-      console.log(`AI analysis completed for message ${messageId}, archive updated: ${result.archiveUpdated}`);
-    } else {
-      console.warn(`AI analysis failed for message ${messageId}: ${result.error}`);
-    }
-  } catch (error) {
-    console.error(`Error in triggerMessageAnalysis for ${messageId}:`, error);
-  }
+  return result;
 }

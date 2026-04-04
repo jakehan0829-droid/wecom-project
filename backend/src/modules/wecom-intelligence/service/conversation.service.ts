@@ -1,6 +1,13 @@
 import { db } from '../../../infra/db/pg.js';
 import type { NormalizedWecomMessage } from './message-normalize.service.js';
 
+function mapSenderRoleToParticipantRole(senderRole: string) {
+  if (senderRole === 'customer') return 'customer';
+  if (senderRole === 'staff') return 'staff';
+  if (senderRole === 'system') return 'system';
+  return 'unknown';
+}
+
 export async function upsertConversation(message: NormalizedWecomMessage) {
   await db.query(
     `insert into wecom_conversations (
@@ -25,6 +32,28 @@ export async function upsertConversation(message: NormalizedWecomMessage) {
       message.linkedCustomerId || null,
       null,
       null,
+      message.sentAt
+    ]
+  );
+}
+
+export async function upsertConversationParticipant(message: NormalizedWecomMessage) {
+  await db.query(
+    `insert into wecom_conversation_participants (
+      conversation_id, user_id, user_name, role_type, is_primary_contact, joined_at
+    ) values ($1, $2, $3, $4, $5, $6)
+    on conflict (conversation_id, user_id)
+    do update set
+      user_name = coalesce(excluded.user_name, wecom_conversation_participants.user_name),
+      role_type = excluded.role_type,
+      is_primary_contact = excluded.is_primary_contact,
+      left_at = null`,
+    [
+      message.conversationId,
+      message.senderId,
+      message.senderName || null,
+      mapSenderRoleToParticipantRole(message.senderRole),
+      message.senderRole === 'customer',
       message.sentAt
     ]
   );

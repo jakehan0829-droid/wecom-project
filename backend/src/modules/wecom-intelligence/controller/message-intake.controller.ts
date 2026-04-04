@@ -1,5 +1,6 @@
 import { AppError } from '../../../shared/errors/app-error.js';
 import { intakeWecomMessage } from '../service/message-intake.service.js';
+import { resolveSenderClassification } from '../service/wecom-message-classification.service.js';
 
 export async function createWecomMessageIntake(payload: Record<string, unknown>) {
   if (!payload.chatType || !payload.platformChatId || !payload.senderId || !payload.sentAt) {
@@ -17,6 +18,13 @@ export async function createRealWecomMessageIntake(payload: Record<string, unkno
   const chatType = payload.chatType === 'group' ? 'group' : 'private';
   const content = typeof payload.content === 'string' ? payload.content : '';
   const externalUserId = typeof payload.externalUserId === 'string' ? payload.externalUserId : undefined;
+  const classification = resolveSenderClassification({
+    chatType,
+    contentType: typeof payload.msgtype === 'string' ? payload.msgtype : 'text',
+    event: typeof payload.event === 'string' ? payload.event : undefined,
+    externalUserId,
+    senderRoleHint: typeof payload.senderRole === 'string' ? payload.senderRole : undefined
+  });
 
   return intakeWecomMessage({
     messageId: String(payload.msgid),
@@ -25,14 +33,19 @@ export async function createRealWecomMessageIntake(payload: Record<string, unkno
     conversationName: typeof payload.chatName === 'string' ? payload.chatName : undefined,
     senderId: String(payload.sender),
     senderName: typeof payload.senderName === 'string' ? payload.senderName : undefined,
-    senderRole: externalUserId ? 'customer' : 'staff',
+    senderRole: classification.senderRole,
+    senderRoleReason: classification.senderRoleReason,
     contentType: typeof payload.msgtype === 'string' ? payload.msgtype : 'text',
     contentRaw: content,
     contentText: content,
     sentAt: String(payload.sendTime),
     linkedCustomerId: externalUserId,
+    messageCategory: classification.messageCategory,
     metadata: {
       source: 'real_wecom_event',
+      senderRoleReason: classification.senderRoleReason,
+      messageCategory: classification.messageCategory,
+      isCustomerExpression: classification.isCustomerExpression,
       chatid: String(payload.chatid),  // 群聊回复时需要此字段
       externalUserId: externalUserId,  // 私聊发送给外部联系人时需要此字段
       event: typeof payload.event === 'string' ? payload.event : undefined,
