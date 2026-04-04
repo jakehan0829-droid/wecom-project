@@ -1,4 +1,5 @@
 import { findLatestInsightV1ByConversationId, listInsightsV1 } from './insight-v1-repository.service.js';
+import type { BusinessFeedbackResult, BusinessFeedbackStatus, CustomerExpressionStatus } from './wecom-automation.types.js';
 
 type FeedbackItem = {
   title?: string;
@@ -11,38 +12,53 @@ type FeedbackItem = {
   [key: string]: unknown;
 };
 
-export async function generateBusinessFeedback(conversationId: string, customerId?: string) {
+export async function generateBusinessFeedback(conversationId: string, customerId?: string): Promise<BusinessFeedbackResult> {
   const latestInsight = await findLatestInsightV1ByConversationId(conversationId);
   if (!latestInsight) {
     return {
       conversationId,
       customerId: customerId || null,
-      status: 'no_insight',
+      status: 'no_insight' as BusinessFeedbackStatus,
+      customerExpressionStatus: 'absent' as CustomerExpressionStatus,
       customerNeedSummary: null,
+      needPoints: [],
+      concernPoints: [],
+      objectionPoints: [],
       riskSignals: [],
       followupSuggestions: [],
       planUpdateSuggestions: []
     };
   }
 
+  const customerExpressionStatus = Number(latestInsight.sourceMessageCount || 0) > 0 ? 'present' as const : 'absent' as const;
+  const status: BusinessFeedbackStatus = customerExpressionStatus === 'present' ? 'ready' : 'observe';
+
   const needPoints = (latestInsight.needs || []).map((item) => ({ title: 'need', description: String(item) }));
   const concernPoints = (latestInsight.concerns || []).map((item) => ({ title: 'concern', description: String(item) }));
   const objectionPoints = (latestInsight.objections || []).map((item) => ({ title: 'objection', description: String(item) }));
   const riskSignals = (latestInsight.risks || []).map((item) => ({ title: 'risk', description: String(item) }));
-  const followupSuggestions: FeedbackItem[] = latestInsight.d4Summary?.actionSuggestion ? [latestInsight.d4Summary.actionSuggestion as FeedbackItem] : [];
-  const planUpdateSuggestions: FeedbackItem[] = latestInsight.d4Summary?.proposalSuggestion ? [latestInsight.d4Summary.proposalSuggestion as FeedbackItem] : [];
+  const followupSuggestions: FeedbackItem[] = status === 'ready' && latestInsight.d4Summary?.actionSuggestion
+    ? [latestInsight.d4Summary.actionSuggestion as FeedbackItem]
+    : [];
+  const planUpdateSuggestions: FeedbackItem[] = status === 'ready' && latestInsight.d4Summary?.proposalSuggestion
+    ? [latestInsight.d4Summary.proposalSuggestion as FeedbackItem]
+    : [];
 
   return {
-    conversationId: latestInsight.conversationId,
-    customerId: latestInsight.customerRef || latestInsight.customerId || customerId || null,
-    status: 'ready',
+    conversationId: String(latestInsight.conversationId),
+    customerId: latestInsight.customerRef ? String(latestInsight.customerRef) : latestInsight.customerId ? String(latestInsight.customerId) : customerId || null,
+    status,
+    customerExpressionStatus,
+    latestCustomerExpression: latestInsight.summaryText ? String(latestInsight.summaryText) : null,
     customerNeedSummary: {
-      summaryText: latestInsight.summaryText,
+      summaryText: String(latestInsight.summaryText || ''),
       keyNeedCount: needPoints.length,
       concernCount: concernPoints.length,
       objectionCount: objectionPoints.length,
-      intentLevel: latestInsight.confidence || 'unknown',
-      stageJudgement: latestInsight.stage || 'unknown'
+      intentLevel: String(latestInsight.confidence || 'unknown'),
+      stageJudgement: String(latestInsight.stage || 'unknown'),
+      customerExpressionStatus,
+      sourceMessageCount: latestInsight.sourceMessageCount || 0
     },
     needPoints,
     concernPoints,

@@ -86,6 +86,7 @@ function mapInsightV1Row(row: Record<string, unknown>) {
     nextActions,
     confidence: confidenceToText(row.confidence),
     evidenceMessageIds: Array.isArray(row.evidence_message_ids_json) ? row.evidence_message_ids_json : [],
+    sourceMessageCount: Number(row.source_message_count || 0),
     d4Summary: {
       proposalSuggestion: needs.length ? {
         suggestionType: 'need_update',

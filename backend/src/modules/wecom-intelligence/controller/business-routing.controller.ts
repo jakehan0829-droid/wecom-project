@@ -346,7 +346,11 @@ export async function getMessageBusinessProcessingResult(payload: {
 
   try {
     const result = await db.query(
-      `select message_id as "messageId", analysis_status as "processingStatus", sender_role as "businessHandler", created_at as "lastProcessedAt"
+      `select message_id as "messageId", analysis_status as "processingStatus",
+              metadata_json->'analysisStatus'->>'businessHandler' as "businessHandler",
+              metadata_json->'analysisStatus'->>'archiveType' as "archiveType",
+              metadata_json->'analysisStatus'->>'targetId' as "targetId",
+              metadata_json->'analysisStatus'->>'updatedAt' as "lastProcessedAt"
        from wecom_messages
        where message_id = $1
        limit 1`,
@@ -376,7 +380,8 @@ export async function getMessageBusinessProcessingResult(payload: {
       lastProcessedAt: row.lastProcessedAt,
       businessHandler: row.businessHandler,
       archiveUpdated: row.processingStatus === 'completed',
-      archiveType: null
+      archiveType: row.archiveType || null,
+      targetId: row.targetId || null
     };
   } catch (error) {
     const duration = Date.now() - startTime;

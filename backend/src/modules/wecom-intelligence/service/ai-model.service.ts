@@ -1219,6 +1219,27 @@ ${conversationContext}
     return result.rows;
   }
 
+  private async updateMessageAnalysisStatus(messageId: string, status: 'pending' | 'completed' | 'failed', details?: Record<string, unknown>) {
+    await db.query(
+      `update wecom_messages
+          set analysis_status = $2,
+              metadata_json = coalesce(metadata_json, '{}'::jsonb) || jsonb_build_object(
+                'analysisStatus',
+                $3::jsonb
+              )
+        where message_id = $1`,
+      [
+        messageId,
+        status,
+        JSON.stringify({
+          status,
+          updatedAt: new Date().toISOString(),
+          ...(details || {})
+        })
+      ]
+    );
+  }
+
   // 根据消息ID分析消息并更新档案
   async analyzeMessageAndUpdateArchives(messageId: string) {
     try {
@@ -1263,6 +1284,11 @@ ${conversationContext}
         );
       }
 
+      await this.updateMessageAnalysisStatus(message.message_id, 'completed', {
+        archiveUpdated: archiveUpdated || memberArchiveUpdated,
+        customerExpressionStatus: analysis.understanding.newNeeds.length || analysis.understanding.informationWorthy.length ? 'present' : 'absent'
+      });
+
       return {
         success: true,
         analysisId: analysis.messageId, // 注意：这里应该返回保存的分析ID，但processMessageAndUpdateArchive没有返回analysisId
@@ -1278,6 +1304,9 @@ ${conversationContext}
 
     } catch (error) {
       console.error(`Error analyzing message ${messageId}:`, error);
+      await this.updateMessageAnalysisStatus(messageId, 'failed', {
+        error: error instanceof Error ? error.message : String(error)
+      }).catch(() => undefined);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -1642,6 +1671,14 @@ ${conversationContext}
         targetId = archiveUpdated ? message.sender_id : undefined;
       }
 
+      await this.updateMessageAnalysisStatus(message.message_id, 'completed', {
+        source: 'business_routing',
+        businessHandler,
+        archiveUpdated,
+        archiveType,
+        targetId: targetId || null
+      });
+
       return {
         success: true,
         messageId: message.message_id,
@@ -1655,6 +1692,10 @@ ${conversationContext}
 
     } catch (error) {
       console.error(`Error processing message ${messageId} with business routing:`, error);
+      await this.updateMessageAnalysisStatus(messageId, 'failed', {
+        error: error instanceof Error ? error.message : String(error),
+        source: 'business_routing'
+      }).catch(() => undefined);
       return {
         success: false,
         messageId,

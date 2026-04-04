@@ -80,12 +80,14 @@ export async function receiveWecomWebhook(payload: Record<string, unknown>, quer
     const automation = dedup.duplicate
       ? {
           triggered: false,
+          executionStatus: 'skipped',
           reason: dedup.reason,
           stateTransition: normalized.lifecycleStatus || normalized.eventAction,
           nextConversationStatus: undefined,
           insight: null,
           feedback: null,
           actions: null,
+          autoSendResult: null,
           lifecycleClosures: {
             outreach: { items: [], total: 0 },
             doctorReview: { items: [], total: 0 }
@@ -96,9 +98,12 @@ export async function receiveWecomWebhook(payload: Record<string, unknown>, quer
           customerId: intake.linkedCustomerId || normalized.externalUserId,
           event: normalized.event,
           changeType: normalized.changeType,
+          messageId: intake.messageId,
+          chatType: normalized.chatType === 'group' ? 'group' : 'private',
           contentType: normalized.msgtype,
           contentText: normalized.content,
-          lifecycleStatus: normalized.lifecycleStatus
+          lifecycleStatus: normalized.lifecycleStatus,
+          messageCategory: intake.messageCategory
         });
 
     const eventState = await createWecomEventStateService({
@@ -130,10 +135,10 @@ export async function receiveWecomWebhook(payload: Record<string, unknown>, quer
       lifecycleStatus: normalized.lifecycleStatus,
       stateTransition: automation.stateTransition,
       triggered: automation.triggered,
-      reason: automation.reason,
-      insightId: automation.insight?.insightId || null,
-      feedbackStatus: automation.feedback?.status || null,
-      actionStatus: automation.actions?.automation?.status || null,
+      reason: automation.executionStatus ? `${automation.executionStatus}:${automation.reason}` : automation.reason,
+      insightId: automation.insight?.insightId ? String(automation.insight.insightId) : null,
+      feedbackStatus: automation.feedback?.status ? String(automation.feedback.status) : null,
+      actionStatus: automation.autoSendResult?.status || automation.actions?.automation?.status || null,
       closureStatus: automation.lifecycleClosures?.outreach?.total ? 'closed_pending_actions' : 'none',
       payload: {
         automation,
@@ -149,6 +154,7 @@ export async function receiveWecomWebhook(payload: Record<string, unknown>, quer
       dedupDuplicate: dedup.duplicate,
       dedupReason: dedup.reason,
       automationTriggered: automation.triggered,
+      automationStatus: automation.executionStatus,
       nextConversationStatus: automation.nextConversationStatus || 'active'
     });
 
